@@ -230,7 +230,7 @@
   (let [db (store-db store)
         {:keys [dir-entries cas-tx]
          {parent-id :db/id} :parent
-         {:as current-entry :keys [db/id de/type dd/children]} :current-entry}
+         {:as current-entry :keys [db/id ::de/type ::dd/children]} :current-entry}
         (entry-info! db root path)
         _ (match-entry! current-entry match-sha-1 :current)
         _ (when (and (not recursive) (seq children))
