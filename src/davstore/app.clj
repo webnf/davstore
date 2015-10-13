@@ -1,25 +1,30 @@
 (ns davstore.app
   (:require [clojure.java.io :as io]
+            [clojure.data.xml :as xml]
             [clojure.pprint :refer [pprint]]
             [clojure.tools.logging :as log]
-            [datomic.api :refer [delete-database]]
+            [datomic.api :refer [delete-database connect]]
             [davstore.blob :as blob]
             [davstore.dav :as dav]
             [davstore.store :as store]
+            [davstore.ext :as ext]
             [net.cgrand.moustache :refer [app uri-segments path-info-segments uri]]
             [ring.middleware.head :refer [wrap-head]]
-            [ring.util.response :refer [response header status content-type not-found]]))
+            [ring.util.response :refer [response header status content-type not-found]]
+            [webnf.kv :refer [map-keys]]))
 
 ;; Middlewares
 
-(defn wrap-store [h blob-path db-uri root-uuid root-uri]
+(defn wrap-store [h & {:keys [blob-path db-uri root-uuid root-uri extension-tags]}]
+  (assert (and blob-path db-uri root-uuid root-uri))
   (let [store (blob/make-store blob-path)
         dstore (assoc (store/init-store! db-uri store root-uuid true)
-                 :root-dir root-uri)]
+                      :root-dir root-uri)]
     (fn [req]
       (h (assoc req
-           ::store (store/open-db dstore)
-           ::bstore store)))))
+                ::extension-tags (map-keys xml/to-qname extension-tags)
+                ::store (store/open-db dstore)
+                ::bstore store)))))
 
 (defn wrap-root [h]
   (fn [req]
@@ -113,7 +118,11 @@
 (defn start-server! []
   (def davstore
     (app
-     (wrap-store blob-dir db-uri root-id "/files")
+     (wrap-store :blob-path blob-dir
+                 :db-uri db-uri
+                 :root-uuid root-id
+                 :root-uri "/files"
+                 :extension-tags {::ext/test nil})
      wrap-log-light
      (wrap-access-control "http://localhost:8080")
      ["blob" &] blob-handler

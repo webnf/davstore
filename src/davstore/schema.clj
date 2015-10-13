@@ -1,24 +1,19 @@
 (ns davstore.schema
   (:import java.util.UUID)
   (:require
+   [clojure.data.xml :refer [alias-ns]]
    [datomic.api :as d :refer [tempid]]
    [webnf.datomic :refer [field enum function defn-db]]
    [webnf.datomic.version :as ver]
    [webnf.base :refer [pprint]]))
 
-(defmacro alias-ns [alias ns-sym & ans]
-  `(do (create-ns '~ns-sym)
-       (alias '~alias '~ns-sym)
-       ~(when (seq ans)
-          `(alias-ns ~@ans))))
-
 (alias-ns
- de  davstore.entry
- det davstore.entry.type
- des davstore.entry.snapshot
- dr  davstore.root
- dd  davstore.dir
- dfc davstore.file.content)
+ :de  :davstore.entry
+ :det :davstore.entry.type
+ :des :davstore.entry.snapshot
+ :dr  :davstore.root
+ :dd  :davstore.dir
+ :dfc :davstore.file.content)
 
 (defn-db davstore.fn/assert-val
   {:requires [[clojure.tools.logging :as log]]}
@@ -49,7 +44,7 @@
               :cas/current name})))
 
 (def schema-ident :davstore/schema)
-(def schema-version "2.0")
+(def schema-version "2.1")
 
 (def schema
   (-> [{:db/id (tempid :db.part/db)
@@ -86,7 +81,9 @@
        (field "File content sha-1"
               :davstore.file.content/sha-1 :string :index)
        (field "File content type"
-              :davstore.file.content/mime-type :string)]
+              :davstore.file.content/mime-type :string)
+       (field "xml qualified name. Use as marker for attribute."
+              :xml/qname :string :unique)]
       (into (for [[var-sym the-var] (ns-interns *ns*)
                   :let [entity (:dbfn/entity (meta the-var))]
                   :when entity]
@@ -96,7 +93,28 @@
 (defn ensure-schema! [conn]
   (ver/ensure-schema! conn schema-ident schema-version schema))
 
+(defn ensure-xmlns! [conn]
+  @(d/transact
+    conn
+    [[:db/add :davstore.entry/name :xml/qname "{DAV:}displayname"]
+     [:db/add :davstore.entry/type :xml/qname "{DAV:}resourcetype"]
+     [:db/add :davstore.entry.type/dir :xml/qname "{DAV:}collection"]
+     [:db/add :davstore.entry.type/file :xml/qname "{//dav.bendlas.net/extension-elements}file"]]))
+
+(defn ensure-extensions! [conn extension-elements]
+  @(d/transact
+    conn
+    (for [[attr {:keys [qname type codec comment]}] extension-elements]
+      (assoc (field comment attr type)
+             :xml/qname qname))))
+
 (comment
+  [2.0 -> 2.1]
+  (let [{db :db-after}
+        @(d/transact conn (-> [(field "xmlns uri. Use as marker for attribute."
+                                      :xml/ns :uri :unique)]
+                              (into (ver/version-tx schema-ident schema-version nil))))]
+    @(d/sync-schema conn (d/basis-t db)))
   [1.1 -> 2.0]
   (letfn [(changed-entries [db datoms]
             (let [txi (d/entid db :db/txInstant)

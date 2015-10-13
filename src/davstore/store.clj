@@ -326,9 +326,9 @@
 
 (defn- ls-seq
   [store {:keys [::dd/children ::de/type] :as e} dir depth]
-  (cons (cond-> (assoc (reify-entity e)
-                  :davstore.ls/path dir)
-                (= ::det/file type) (assoc :davstore.ls/blob-file (blob-file store e)))
+  (cons {:path dir
+         :entity e
+         :blob-file (when (= ::det/file type) (blob-file store e))}
         (when (pos? depth)
           (mapcat #(ls-seq store % (conj dir (::de/name %)) (dec depth)) children))))
 

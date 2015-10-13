@@ -6,36 +6,50 @@
             [davstore.blob :as blob]
             [davstore.dav.xml :as dav]
             [davstore.store :as store]
-            [davstore.schema :refer [alias-ns]]
+            [davstore.ext :as ext]
             [datomic.api :as d]
             [ring.util.response :refer [created]]
             [webnf.base :refer [pprint-str]]
-            [webnf.kv :refer [map-vals assoc-when*]]
+            [webnf.kv :refer [map-vals assoc-when* treduce-kv]]
             [webnf.date :as date])
   (:import java.io.File
            java.net.URI
            java.nio.file.Files
            java.util.Date))
 
+(xml/alias-ns
+ :de  :davstore.entry
+ :det :davstore.entry.type
+ :des :davstore.entry.snapshot
+ :dr  :davstore.root
+ :dd  :davstore.dir
+ :dfc :davstore.file.content
+ :dfn :davstore.fn)
+
 (defn entry-status [{:as want-props :keys [::dav/all ::dav/names-only]}
-                    {:as entry :keys [:davstore.ls/path :davstore.file.content/mime-type
-                                      :davstore.entry/type :davstore.file.content/sha-1
-                                      :davstore.entry/name :davstore.ls/blob-file
-                                      :davstore.entry/created :davstore.entry/last-modified]}]
-  (let [props (assoc-when* (fn* ([k] (or all (contains? want-props k)))
-                                ([k v] (not (nil? v))))
-                           {}
-                           ::dav/displayname name
-                           ::dav/getcontenttype mime-type
-                           ::dav/getetag (when sha-1 (str \" sha-1 \"))
-                           ::dav/getlastmodified (date/format-http (or last-modified (Date. 0)))
-                           ::dav/creationdate (date/format-http (or created (Date. 0)))
-                           ::dav/resourcetype
-                           (case type
-                             ;; here you can see, how to refer to xml names externally
-                             :davstore.entry.type/dir (xml/element ::dav/collection)
-                             :davstore.entry.type/file (xml/element ::dav/bendlas:file))
-                           ::dav/getcontentlength (and blob-file (str (.length ^File blob-file))))]
+                    {:keys [path blob-file]
+                     {:as entry
+                      :keys [::dfc/mime-type ::de/type ::dfc/sha-1
+                             ::de/name ::de/created ::de/last-modified]}
+                     :entity}
+                    extension-props]
+  (let [props* (assoc-when* (fn* ([k] (or all (contains? want-props k)))
+                                 ([k v] (not (nil? v))))
+                            {}
+                            ::dav/displayname name
+                            ::dav/getcontenttype mime-type
+                            ::dav/getetag (when sha-1 (str \" sha-1 \"))
+                            ::dav/getlastmodified (date/format-http (or last-modified (Date. 0)))
+                            ::dav/creationdate (date/format-http (or created (Date. 0)))
+                            ::dav/resourcetype
+                            (case type
+                              ;; here you can see, how to refer to xml names externally
+                              ::det/dir (xml/element ::dav/collection)
+                              ::det/file (xml/element ::ext/file))
+                            ::dav/getcontentlength (and blob-file (str (.length ^File blob-file))))
+        props (treduce-kv (fn [tr qname ext-prop]
+                            (assoc! tr qname (ext/xml-content ext-prop entry)))
+                          props* extension-props)]
     (if names-only
       (map-vals (constantly nil) props)
       props)))
@@ -50,11 +64,11 @@
               nil pathes))
     (str sb)))
 
-(defn propfind-status [^String root-dir files {:as want-props :keys [::dav/all ::dav/names-only]}]
-  (reduce (fn [m {:keys [:davstore.ls/path] :as entry}]
+(defn propfind-status [^String root-dir files {:as want-props :keys [::dav/all ::dav/names-only]} extension-elements]
+  (reduce (fn [m {:keys [path] :as entry}]
             (assoc m
               (apply pjoin root-dir path)
-              (dav/propstat 200 (entry-status want-props entry))))
+              (dav/propstat 200 (entry-status want-props entry extension-elements))))
           {} files))
 
 (def path-matcher
@@ -105,20 +119,12 @@
 
 ;; Handlers
 
-(alias-ns
- de  davstore.entry
- det davstore.entry.type
- des davstore.entry.snapshot
- dr  davstore.root
- dd  davstore.dir
- dfc davstore.file.content
- dfn davstore.fn)
-
 (defhandler options [_ _]
   {:status 200
    :headers {"DAV" "2"}})
 
 (defhandler propfind [path {:as req
+                            ext :davstore.app/extension-elements
                             store :davstore.app/store
                             {:strs [depth content-length]} :headers
                             uri :uri}]
@@ -130,10 +136,10 @@
                                "infinity" 65536)))]
     (let [want-props (if (= "0" content-length)
                        {::dav/all true}
-                       (dav/parse-propfind (xml/parse* 'davstore.dav.xml (:body req))))]
+                       (dav/parse-propfind (xml/parse (:body req))))]
       {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
        :body (dav/emit (dav/multistatus
-                        (propfind-status (:root-dir store) fs want-props)))})
+                        (propfind-status (:root-dir store) fs want-props ext)))})
     {:status 404}))
 
 (defhandler read [path {:as req store :davstore.app/store uri :uri}]
@@ -234,22 +240,23 @@
 
 (defhandler proppatch [path {:as req store :davstore.app/store
                              body :body}]
+  (println (dav/parse-propertyupdate (xml/parse body)))
   {:status 405})
 
 (defhandler lock [path {:as req store :davstore.app/store
                         {:strs [depth]} :headers
                         body :body}]
   (let [entry (store/get-entry store (remove str/blank? path))
-        info (dav/parse-lockinfo (xml/parse* 'davstore.dav.xml body))]
+        info (dav/parse-lockinfo (xml/parse body))]
     ;; (log/debug "Lock Info\n" (pprint-str info))
     {:status (if entry 200 201)
      :body (dav/emit
             (dav/props
-             {#xml/name ::dav/lockdiscovery
+             {::dav/lockdiscovery
               (dav/activelock (assoc info
-                                :depth depth
-                                :timeout "Second-60"
-                                :token (java.util.UUID/randomUUID)))}))}))
+                                     :depth depth
+                                     :timeout "Second-60"
+                                     :token (java.util.UUID/randomUUID)))}))}))
 
 (defhandler unlock [path {:as req store :davstore.app/store
                           {:strs [lock-token]} :headers}]

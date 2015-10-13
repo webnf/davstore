@@ -8,8 +8,9 @@
 ;; ## Set up runtime - global keyword prefixes
 ;; They can be used to denote namespaced xml names in as regular clojure keywords
 
-(xml/defns "DAV:" ;; e.g. ::props -> :davstore.dav.xml/props -> {DAV:}props
-  :bendlas "//dav.bendlas.net/extension-elements") ;; e.g. ::bendlas:regular-file
+(xml/declare-ns
+ :davstore.dav.xml "DAV:"
+ :davstore.ext "//dav.bendlas.net/extension-elements")
 
 (defn multi? [v]
   (or (list? v) (vector? v)))
@@ -40,9 +41,19 @@
           {} props))
 
 (defn parse-propfind [pf]
+  (def testy pf)
   (match [pf]
          [{:tag ::propfind
            :content props}]
+         (parse-props props)))
+
+(defn parse-propertyupdate [pu]
+  (println (pr-str pu))
+  (def testx pu)
+  (match [pu]
+         [{:tag ::propertyupdate
+           :content ([{:tag ::set :content props}]
+                     :seq)}]
          (parse-props props)))
 
 (defn parse-lock [lock-props]
@@ -96,7 +107,7 @@
           [code name])))
 
 (defn- element [name content]
-  (xml/element* (xml/xml-name name) nil (to-multi content)))
+  (xml/element* name nil (to-multi content)))
 
 (defn props [ps]
   (xml/element* ::prop nil
@@ -125,7 +136,7 @@
                   (response href s-o-ps))))
 
 (defn- dav-prop [kw]
-  {:tag (xml/xml-name "DAV:" (name kw))})
+  {:tag (xml/make-qname "DAV:" (name kw) nil)})
 
 (defn activelock [{:keys [scope type owner depth timeout token]}]
   (element ::activelock
