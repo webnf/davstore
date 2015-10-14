@@ -5,6 +5,7 @@
     - A connector to expose files over webdav"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
+  :source-paths ["src/server"]
   :dependencies [[org.clojure/clojure "1.7.0"]
                  [net.bendlas/data.xml "1.0.0"]
                  [webnf/base "0.1.19-SNAPSHOT"
