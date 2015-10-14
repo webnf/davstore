@@ -3,7 +3,7 @@
             [clojure.data.xml :as xml]
             [clojure.pprint :refer [pprint]]
             [clojure.tools.logging :as log]
-            [datomic.api :refer [delete-database connect]]
+            [datomic.api :as d :refer [delete-database connect]]
             [davstore.blob :as blob]
             [davstore.dav :as dav]
             [davstore.store :as store]
@@ -13,16 +13,25 @@
             [ring.util.response :refer [response header status content-type not-found]]
             [webnf.kv :refer [map-keys]]))
 
+(xml/alias-ns
+ :de  :davstore.entry
+ :det :davstore.entry.type
+ :des :davstore.entry.snapshot
+ :dr  :davstore.root
+ :dd  :davstore.dir
+ :dfc :davstore.file.content
+ :dfn :davstore.fn)
+
 ;; Middlewares
 
-(defn wrap-store [h & {:keys [blob-path db-uri root-uuid root-uri extension-tags]}]
+(defn wrap-store [h & {:keys [blob-path db-uri root-uuid root-uri ext-props]}]
   (assert (and blob-path db-uri root-uuid root-uri))
   (let [store (blob/make-store blob-path)
         dstore (assoc (store/init-store! db-uri store root-uuid true)
-                      :root-dir root-uri)]
+                      :root-dir root-uri
+                      :ext-props (map-keys xml/canonical-name ext-props))]
     (fn [req]
       (h (assoc req
-                ::extension-tags (map-keys xml/to-qname extension-tags)
                 ::store (store/open-db dstore)
                 ::bstore store)))))
 
@@ -122,7 +131,15 @@
                  :db-uri db-uri
                  :root-uuid root-id
                  :root-uri "/files"
-                 :extension-tags {::ext/test nil})
+                 :ext-props {::ext/index-file
+                             (reify ext/ExtensionProperty
+                               (db-add-tx [_ e content]
+                                 [[:db/add (:db/id e) ::dd/index-file (apply str content)]])
+                               (db-retract-tx [_ e]
+                                 (when (contains? e ::dd/index-file)
+                                   [[:db/retract (:db/id e) ::dd/index-file (::dd/index-file e)]]))
+                               (xml-content [_ e]
+                                 (::dd/index-file e)))})
      wrap-log-light
      (wrap-access-control "http://localhost:8080")
      ["blob" &] blob-handler

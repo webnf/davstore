@@ -41,20 +41,20 @@
           {} props))
 
 (defn parse-propfind [pf]
-  (def testy pf)
   (match [pf]
          [{:tag ::propfind
            :content props}]
          (parse-props props)))
 
 (defn parse-propertyupdate [pu]
-  (println (pr-str pu))
-  (def testx pu)
   (match [pu]
          [{:tag ::propertyupdate
-           :content ([{:tag ::set :content props}]
-                     :seq)}]
-         (parse-props props)))
+           :content updates}]
+         (reduce
+          #(match [%2]
+                  [{:tag ::set :content props}] (update %1 :set-props merge (parse-props props))
+                  [{:tag ::remove :content props}] (update %1 :remove-props merge (parse-props props)))
+          {} updates)))
 
 (defn parse-lock [lock-props]
   (reduce (fn [lm prop]
@@ -110,20 +110,25 @@
   (xml/element* name nil (to-multi content)))
 
 (defn props [ps]
-  (xml/element* ::prop nil
-                (for [[n v] ps
-                      :when v]
-                  (element n v))))
+  (xml/aggregate-xmlns
+   (xml/element* ::prop nil
+                 (for [[n v] ps
+                       :when v]
+                   (element n v)))))
 
 (defn- status [code]
   (xml/element ::status nil (if (number? code)
                               (str "HTTP/1.1 " code " " (get-status-phrase code))
                               (str code))))
 
-(defn propstat [st ps]
-  (xml/element ::propstat nil
-               (props ps)
-               (status st)))
+(defn propstat [& {:as status-props}]
+  (reduce-kv (fn [r st ps]
+               (if (and st (seq ps))
+                 (conj r (xml/element ::propstat nil
+                                      (props ps)
+                                      (status st)))
+                 r))
+             [] status-props))
 
 (defn response [href status-or-propstat]
   (xml/element* ::response nil
@@ -136,7 +141,7 @@
                   (response href s-o-ps))))
 
 (defn- dav-prop [kw]
-  {:tag (xml/make-qname "DAV:" (name kw) nil)})
+  {:tag (xml/qname "DAV:" (name kw))})
 
 (defn activelock [{:keys [scope type owner depth timeout token]}]
   (element ::activelock

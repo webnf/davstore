@@ -1,17 +1,20 @@
 (ns davstore.store
-  (:import javax.xml.bind.DatatypeConverter
+  (:import datomic.db.Db
            (java.io ByteArrayOutputStream OutputStreamWriter
                     InputStream OutputStream)
            (java.security MessageDigest)
            (java.util UUID Date)
-           datomic.db.Db)
-  (:require [davstore.schema :refer [ensure-schema! alias-ns]]
-            [davstore.blob :as blob :refer [make-store store-file get-file]]
-            [clojure.tools.logging :as log]
-            [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]
-            [clojure.repl :refer :all]
+           javax.xml.bind.DatatypeConverter)
+  (:require [clojure.data.xml :refer [alias-ns]]
             [clojure.pprint :refer :all]
-            [datomic.api :as d :refer [q tempid transact transact-async create-database connect]]))
+            [clojure.repl :refer :all]
+            [clojure.string :as str]
+            [clojure.tools.logging :as log]
+            [datomic.api :as d :refer [q tempid transact transact-async create-database connect]]
+            [davstore.blob :as blob :refer [make-store store-file get-file]]
+            [davstore.ext :as ext]
+            [davstore.schema :refer [ensure-schema!]]
+            [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]))
 
 (defmacro spy [& exprs]
   (let [args (butlast exprs)
@@ -29,13 +32,14 @@
          res#))))
 
 (alias-ns
- de  davstore.entry
- det davstore.entry.type
- des davstore.entry.snapshot
- dr  davstore.root
- dd  davstore.dir
- dfc davstore.file.content
- dfn davstore.fn)
+ :dav :davstore.dav.xml
+ :de  :davstore.entry
+ :det :davstore.entry.type
+ :des :davstore.entry.snapshot
+ :dr  :davstore.root
+ :dd  :davstore.dir
+ :dfc :davstore.file.content
+ :dfn :davstore.fn)
 
 ;; ## SHA-1 Stuff
 
@@ -69,8 +73,8 @@
 
 (defn dir-child [db dir-id child-name]
   (when-let [name-entries (seq (d/q '[:find ?id :in $ ?root ?name :where
-                                      [?root :davstore.dir/children ?id]
-                                      [?id :davstore.entry/name ?name]]
+                                      [?root ::dd/children ?id]
+                                      [?id ::de/name ?name]]
                                     db dir-id child-name))]
     (assert (= 1 (count name-entries)))
     (ffirst name-entries)))
@@ -81,14 +85,16 @@
   (loop [{id :db/id :as entry} (::dr/dir (d/entity db root))
          [fname & names] (seq path)
          res [entry]]
-    (assert entry)
-    (if fname
+    (assert entry (str root " " path))
+    (if-not (str/blank? fname)
       (if-let [ch (dir-child db id fname)]
         (let [e (d/entity db ch)]
           (recur e names (conj res e)))
-        (do (log/debug "No entry at path" root path)
+        (do (log/debug "No entry at path" root (pr-str path))
             nil))
-      res)))
+      (if (seq names)
+        (recur entry names res)
+        res))))
 
 (defn path-entry
   "Get entry at path"
@@ -97,7 +103,7 @@
 
 
 (defn get-entry [{:keys [root] :as store} path]
-  (path-entry (store-db store) [:davstore.root/id root] path))
+  (path-entry (store-db store) [::dr/id root] path))
 
 ;; ### File Ops
 
@@ -193,10 +199,27 @@
                        ::dfc/sha-1 sha-1*
                        ::de/name (last path)}]))
         res @(transact conn tx)]
-    (log/debug "File touch success" res)
+    ;(log/debug "File touch success" res)
     (if current-entry
       {:success :updated}
       {:success :created})))
+
+(deffileop propertyupdate! "PROPPATCH" [{:as store :keys [conn root ext-props]} path {:keys [set-props remove-props]}]
+  (if-let [entry (get-entry store path)]
+    (let [prop-results (fn [props to-ext-tx]
+                         (map (fn [[prop val]]
+                                (if-let [ext-prop (get ext-props prop)]
+                                  {:result {:prop prop :status :ok}
+                                   :tx (to-ext-tx (get ext-props prop) entry val)}
+                                  {:result {:prop prop :status :not-found}}))
+                              props))
+          results (concat (prop-results set-props ext/db-add-tx)
+                          (prop-results remove-props (fn [ext-prop _ _]
+                                                       (ext/db-retract-tx ext-prop entry))))
+          res @(transact conn (mapcat :tx results))]
+      ;(log/debug "PROPPATCH success" res (map :result results))
+      {:status :multi :propstat (map :result results)})
+    {:status :not-found}))
 
 (deffileop mkdir! "MKCOL" [{:as store :keys [conn root]} path]
   (let [db (store-db store)
@@ -223,7 +246,7 @@
                   ::de/last-modified cur-date}
                  cas-tx)
         res @(transact conn tx)]
-    (log/debug "Mkdir success" res)
+    ;(log/debug "Mkdir success" res)
     {:success :created}))
 
 (deffileop rm! "DELETE" [{:keys [conn root] :as store} path match-sha-1 recursive]
@@ -243,7 +266,7 @@
                      [[::dfn/assert-val id ::dd/children nil]])
                    cas-tx)
         res @(transact conn tx)]
-    (log/debug "rm success" res)
+    ;(log/debug "rm success" res)
     {:success :deleted}))
 
 (defn cp-cas [{{:as from type ::de/type} :current-entry
@@ -255,7 +278,7 @@
               recursive overwrite]
   (when-not from
     (throw (ex-info "Not found" {:error :not-found :path from-path})))
-  (when-not (or recursive (= :det/file type))
+  (when-not (or recursive (= ::det/file type))
     (throw (ex-info "Copy source is directory"
                     {:error :cas/mismatch
                      :cas/attribute ::de/type
@@ -270,7 +293,6 @@
   (let [tid (d/tempid :db.part/davstore.entries)]
     (list* (dissoc (into {:db/id tid} entry) ::dd/children)
            [:db/add parent-id ::dd/children tid]
-           [:db/add parent-id ::de/last-modified (Date.)]
            (mapcat #(cp-tx tid %) (::dd/children entry)))))
 
 (deffileop cp! "COPY" [{:keys [conn root] :as store}
@@ -285,7 +307,7 @@
                           (-> (into {} from-entry)
                               (assoc ::de/name (last to-path)))))
         res @(transact conn tx)]
-    (log/debug "cp success" res)
+    ;(log/debug "cp success" res)
     (if to-entry
       {:success :copied
        :result :overwritten}
@@ -314,7 +336,7 @@
                      [[:db.fn/retractEntity (:db/id to-entry)]])
                    (mv-tx (:db/id from-parent) (:db/id to-parent) (:db/id from-entry) (last to-path)))
         res @(transact conn tx)]
-    (log/debug "mv success" res)
+    ;(log/debug "mv success" res)
     (if to-entry
       {:success :moved
        :result :overwritten}
@@ -338,12 +360,10 @@
 
 ;; ### File Store Init
 
-(def root-id :davstore.container/root)
-
 (defn create-root!
   ([conn uuid] (create-root! conn uuid {}))
   ([conn uuid root-entity]
-   (assert (not (d/entity (d/db conn) [:davstore.root/id uuid])) "Root exists")
+   (assert (not (d/entity (d/db conn) [::dr/id uuid])) "Root exists")
    (let [root-id (tempid :db.part/user)
          rdir-id (tempid :db.part/davstore.entries)
          cur-date (Date.)
@@ -383,10 +403,7 @@
            conn (connect db-uri)
            _ (ensure-schema! conn)
            db (d/db conn)]
-       (assoc (open-root! {:conn conn} main-root-uuid (when create-if-missing
-                                                        (if created
-                                                          {:db/ident root-id}
-                                                          {})))
+       (assoc (open-root! {:conn conn} main-root-uuid (when create-if-missing {}))
          :store-id main-root-uuid
          :blob-store blob-store))))
 
@@ -400,7 +417,7 @@
 (set! *warn-on-reflection* true)
 
 (defn cat [store path]
-  (when-let [sha1 (:davstore.file.content/sha-1 (get-entry store path))]
+  (when-let [sha1 (::dfc/sha-1 (get-entry store path))]
     (println (slurp (blob-file store sha1)))))
 
 (defn- store-str [{:keys [blob-store]} ^String s]
@@ -413,31 +430,15 @@
 (defn write! [store path content]
   (touch! store path "text/plain" (store-str store content) nil))
 
-(defn insert-testdata [{:keys [conn] :as store}]
-  (store-tp store ["a"] "a's content")
-  (store-tp store ["b"] "b's content")
-  (mkdir! store ["d"])
-  (store-tp store ["d" "c"] "d/c's content"))
-
-(declare test-store)
-
-(defn init-test! []
-  (def test-uri "datomic:mem://davstore-test")
-  (when (bound? #'test-store)
-    (d/delete-database test-uri))
-  (def test-blobstore (make-store "/tmp/davstore-test"))
-  (def test-store (init-store! test-uri test-blobstore))
-  (insert-testdata test-store))
-
-(defmulti print-entry (fn [entry depth] (:davstore.entry/type entry)))
-(defmethod print-entry :davstore.entry.type/dir
+(defmulti print-entry (fn [entry depth] (::de/type entry)))
+(defmethod print-entry ::det/dir
   [{:keys [:db/id ::de/name ::dd/children]} depth]
   (apply concat
          (repeat depth "  ")
          [name "/ #" id "\n"]
          (map #(print-entry % (inc depth)) children)))
 
-(defmethod print-entry :davstore.entry.type/file
+(defmethod print-entry ::det/file
   [{:keys [:db/id ::de/name ::dfc/sha-1]} depth]
   (concat
    (repeat depth "  ")

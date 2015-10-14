@@ -52,38 +52,36 @@
         :db.install/_partition :db.part/db}
 
        (field "File name of an entity"
-              :davstore.entry/name :string :index)
+              ::de/name :string :index)
        (field "Entry type"
-              :davstore.entry/type :ref)
+              ::de/type :ref)
        (enum "Directory type" :davstore.entry.type/dir)
-       (enum "File type" :davstore.entry.type/file)
+       (enum "File type" ::det/file)
 
        (field "Entry sha-1"
-              :davstore.entry.snapshot/sha-1 :string)
+              ::des/sha-1 :string)
 
-       (field "Creation Date" :davstore.entry/created :instant)
-       (field "Last Modified Date" :davstore.entry/last-modified :instant)
+       (field "Creation Date" ::de/created :instant)
+       (field "Last Modified Date" ::de/last-modified :instant)
 
 
        (field "Global identity of a file root"
-              :davstore.root/id :uuid :unique :identity)
+              ::dr/id :uuid :unique :identity)
        (field "Working directory of root"
-              :davstore.root/dir :ref)
+              ::dr/dir :ref)
        (field "Current and former entries of root"
-              :davstore.root/all-snapshot-dirs :ref :many)
+              ::dr/all-snapshot-dirs :ref :many)
 
 
        (field "Directory entries"
-              :davstore.dir/children :ref :many :component)
+              ::dd/children :ref :many :component)
        (field "Index file of directory"
-              :davstore.dir/index-file :string)
+              ::dd/index-file :string)
 
        (field "File content sha-1"
-              :davstore.file.content/sha-1 :string :index)
+              ::dfc/sha-1 :string :index)
        (field "File content type"
-              :davstore.file.content/mime-type :string)
-       (field "xml qualified name. Use as marker for attribute."
-              :xml/qname :string :unique)]
+              ::dfc/mime-type :string)]
       (into (for [[var-sym the-var] (ns-interns *ns*)
                   :let [entity (:dbfn/entity (meta the-var))]
                   :when entity]
@@ -92,21 +90,6 @@
 
 (defn ensure-schema! [conn]
   (ver/ensure-schema! conn schema-ident schema-version schema))
-
-(defn ensure-xmlns! [conn]
-  @(d/transact
-    conn
-    [[:db/add :davstore.entry/name :xml/qname "{DAV:}displayname"]
-     [:db/add :davstore.entry/type :xml/qname "{DAV:}resourcetype"]
-     [:db/add :davstore.entry.type/dir :xml/qname "{DAV:}collection"]
-     [:db/add :davstore.entry.type/file :xml/qname "{//dav.bendlas.net/extension-elements}file"]]))
-
-(defn ensure-extensions! [conn extension-elements]
-  @(d/transact
-    conn
-    (for [[attr {:keys [qname type codec comment]}] extension-elements]
-      (assoc (field comment attr type)
-             :xml/qname qname))))
 
 (comment
   [2.0 -> 2.1]
@@ -145,8 +128,8 @@
                ::de/last-modified last-mod}))
           (update-11-20 [conn]
             (let [{db :db-after}
-                  @(d/transact conn (-> [(field "Creation Date" :davstore.entry/created :instant)
-                                         (field "Last Modidied Date" :davstore.entry/last-modified :instant)]
+                  @(d/transact conn (-> [(field "Creation Date" ::de/created :instant)
+                                         (field "Last Modidied Date" ::de/last-modified :instant)]
                                         (into (ver/version-tx schema-ident schema-version nil))))]
               @(d/sync-schema conn (d/basis-t db))
               @(d/transact conn (cm-instants-tx (find-cm-instants conn)))))]

@@ -3,16 +3,38 @@
             [davstore.store :refer :all]
             [davstore.blob :as blob]
             [datomic.api :as d]
+            [webnf.datomic.query :refer [reify-entity]]
             [clojure.pprint :refer :all]
-            [clojure.repl :refer :all]))
+            [clojure.repl :refer :all]
+            [clojure.data.xml :refer [alias-ns]]))
+
+(alias-ns
+ :de  :davstore.entry
+ :det :davstore.entry.type
+ :des :davstore.entry.snapshot
+ :dr  :davstore.root
+ :dd  :davstore.dir
+ :dfc :davstore.file.content
+ :dfn :davstore.fn)
+
+(defn insert-testdata [store]
+  (store-tp store ["a"] "a's content")
+  (store-tp store ["b"] "b's content")
+  (mkdir! store ["d"])
+  (store-tp store ["d" "c"] "d/c's content"))
+
+(def testdata-ref-tree
+  {"a" "a's content"
+   "b" "b's content"
+   "d" {"c" "d/c's content"}})
 
 (def ^:dynamic *store*)
 
 (use-fixtures
   :once (fn [f]
           (let [uuid (d/squuid)
-                db-uri (str "datomic:mem://davstore-test-" uuid)
-                blob-path (str "/tmp/davstore-test-" uuid)]
+                db-uri (str "datomic:mem://davstore-test" uuid)
+                blob-path (str "/tmp/davstore-test" uuid)]
             (try
               (let [blobstore (blob/make-store blob-path)]
                 (binding [*store* (init-store! db-uri blobstore uuid true)]
@@ -34,13 +56,10 @@
 (defn test-verify-store
   ([] (test-verify-store true))
   ([expect-succcess]
-;     (pr-tree *store*)
-     (if expect-succcess
-       (is (= nil (seq (verify-store *store*))))
-       (is (seq (verify-store *store*))))))
+   ;;  (pr-tree *store*)
+   (is expect-succcess "TODO: implement checks for store invariants")))
 
 (deftest verification
-  (println (keys *store*) (:conn *store*) (store-db *store*))
   (test-verify-store)
   @(d/transact (:conn *store*)
                [[:db/add (:db/id (get-entry *store* ["d" "c"]))
@@ -55,18 +74,19 @@
 
 (defn match-tree
   ([[entry]] (match-tree entry *trt*))
-  ([{:keys [davstore.container/children davstore.file.content/sha1]} tree]
-     (cond
-      (string? tree) (is (= tree (store-content sha1)))
-      (map? tree) (let [ch (into {} (map (juxt :davstore.entry/name identity) children))]
-                    (is (= (count ch) (count children)) "Multiple entries with same name")
-                    (reduce-kv
-                     (fn [_ fname content]
-                       (let [c (get ch fname)]
-                         (is c (str "File " fname " not present"))
-                         (match-tree c content)))
-                     nil tree))
-      :else (throw))))
+  ([{:keys [::dd/children ::dfc/sha-1] :as entry} tree]
+   ;(println (reify-entity entry))
+   (cond
+     (string? tree) (is (= tree (store-content sha-1)))
+     (map? tree) (let [ch (into {} (map (juxt ::de/name identity) children))]
+                   (is (= (count ch) (count children)) "Multiple entries with same name")
+                   (reduce-kv
+                    (fn [_ fname content]
+                      (let [c (get ch fname)]
+                        (is c (str "File " fname " not present"))
+                        (match-tree c content)))
+                    nil tree))
+     :else (throw))))
 
 (defn match-root
   ([] (match-root *trt*))
@@ -77,25 +97,24 @@
   (set! *trt* (f *trt*))
   (match-root))
 
-(def testdata-ref-tree
-  {"a" "a's content"
-   "b" "b's content"
-   "d" {"c" "d/c's content"}})
-
 (deftest file-ops
   (binding [*trt* testdata-ref-tree]
     (match-root)
     (testing "Copy file"
       (cp! *store* ["a"] ["A"] false false)
-      (update-root! #(assoc % "A" (% "a")))
+      (update-root! #(assoc % "A" (% "a"))))
+    (testing "Copy to existing file, no overwrite"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (cp! *store* ["b"] ["A"] false false)))
+                   (cp! *store* ["b"] ["A"] false false))))
+    (testing "Copy to existing file, overwrite"
       (cp! *store* ["b"] ["A"] false true)
-      (update-root! #(assoc % "A" (% "b")))
+      (update-root! #(assoc % "A" (% "b"))))
+    (testing "Copy dir, no recursive"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (cp! *store* ["d"] ["D"] false false)))
-      (cp! *store* ["d"] ["D"] true false)
-      (update-root! #(assoc % "D" (% "d"))))
+                   (cp! *store* ["d"] ["D"] false false))))
+    (testing "Copy dir, recursive"
+     (cp! *store* ["d"] ["D"] true false)
+     (update-root! #(assoc % "D" (% "d"))))
     (testing "Copy dir"
       (is (thrown? clojure.lang.ExceptionInfo
                    (cp! *store* ["d"] ["D"] true false)))

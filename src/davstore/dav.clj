@@ -124,7 +124,6 @@
    :headers {"DAV" "2"}})
 
 (defhandler propfind [path {:as req
-                            ext :davstore.app/extension-elements
                             store :davstore.app/store
                             {:strs [depth content-length]} :headers
                             uri :uri}]
@@ -139,7 +138,7 @@
                        (dav/parse-propfind (xml/parse (:body req))))]
       {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
        :body (dav/emit (dav/multistatus
-                        (propfind-status (:root-dir store) fs want-props ext)))})
+                        (propfind-status (:root-dir store) fs want-props (:ext-props store))))})
     {:status 404}))
 
 (defhandler read [path {:as req store :davstore.app/store uri :uri}]
@@ -240,8 +239,19 @@
 
 (defhandler proppatch [path {:as req store :davstore.app/store
                              body :body}]
-  (println (dav/parse-propertyupdate (xml/parse body)))
-  {:status 405})
+  (let [prop-updates (dav/parse-propertyupdate (xml/parse body))]
+    (match [(store/propertyupdate! store path prop-updates)]
+           [{:status :not-found}] {:status 404}
+           [{:status :multi :propstat propstat}]
+           {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
+            :body (dav/emit (dav/multistatus
+                             {(apply pjoin (:root-dir store) path)
+                              (dav/propstat 200 (->> propstat
+                                                     (filter (comp #{:ok} :status))
+                                                     (map #(vector (:prop %) [])))
+                                            404 (->> propstat
+                                                     (filter (comp #{:not-found} :status))
+                                                     (map #(vector (:prop %) []))))}))})))
 
 (defhandler lock [path {:as req store :davstore.app/store
                         {:strs [depth]} :headers
