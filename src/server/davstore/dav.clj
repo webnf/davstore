@@ -14,6 +14,7 @@
             [webnf.date :as date])
   (:import java.io.File
            java.net.URI
+           java.net.URLEncoder
            java.nio.file.Files
            java.util.Date))
 
@@ -59,8 +60,10 @@
     (when-not (= \/ (.charAt root-dir (dec (count root-dir))))
       (.append sb \/))
     (when path
-      (.append sb path)
-      (reduce (fn [_ p] (.append sb \/) (.append sb p))
+      (.append sb (URLEncoder/encode path "UTF-8"))
+      (reduce (fn [_ p]
+                (.append sb \/)
+                (.append sb (URLEncoder/encode p "UTF-8")))
               nil pathes))
     (str sb)))
 
