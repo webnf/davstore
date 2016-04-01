@@ -119,43 +119,44 @@
         (update-in (h req) [:headers] #(merge hdr %))))))
 
 ;; Quick and embedded dav server
+(comment
+  (require '[ring.adapter.jetty :as rj])
+  (declare davstore)
+  (defonce server (agent nil))
 
-(require '[ring.adapter.jetty :as rj])
-(declare davstore)
-(defonce server (agent nil))
+  (defn start-server! []
+    (def davstore
+      (app
+       (wrap-store :blob-path blob-dir
+                   :db-uri db-uri
+                   :root-uuid root-id
+                   :root-uri "/files"
+                   :ext-props {::ext/index-file
+                               (reify ext/ExtensionProperty
+                                 (db-add-tx [_ e content]
+                                   [[:db/add (:db/id e) ::dd/index-file (apply str content)]])
+                                 (db-retract-tx [_ e]
+                                   (when (contains? e ::dd/index-file)
+                                     [[:db/retract (:db/id e) ::dd/index-file (::dd/index-file e)]]))
+                                 (xml-content [_ e]
+                                   (::dd/index-file e)))})
+       wrap-log-light
+       (wrap-access-control "http://localhost:8080")
+       ["blob" &] blob-handler
+       ["files" &] file-handler
+       ["debug"] (fn [req] {:status 400 :debug req})))
+    (send server
+          (fn [s]
+            (assert (not s))
+            (rj/run-jetty #'davstore {:port 8082 :join? false}))))
 
-(defn start-server! []
-  (def davstore
-    (app
-     (wrap-store :blob-path blob-dir
-                 :db-uri db-uri
-                 :root-uuid root-id
-                 :root-uri "/files"
-                 :ext-props {::ext/index-file
-                             (reify ext/ExtensionProperty
-                               (db-add-tx [_ e content]
-                                 [[:db/add (:db/id e) ::dd/index-file (apply str content)]])
-                               (db-retract-tx [_ e]
-                                 (when (contains? e ::dd/index-file)
-                                   [[:db/retract (:db/id e) ::dd/index-file (::dd/index-file e)]]))
-                               (xml-content [_ e]
-                                 (::dd/index-file e)))})
-     wrap-log-light
-     (wrap-access-control "http://localhost:8080")
-     ["blob" &] blob-handler
-     ["files" &] file-handler
-     ["debug"] (fn [req] {:status 400 :debug req})))
-  (send server
-        (fn [s]
-          (assert (not s))
-          (rj/run-jetty #'davstore {:port 8082 :join? false}))))
+  (defn stop-server! []
+    (send server
+          (fn [s]
+            (.stop s)
+            nil)))
 
-(defn stop-server! []
-  (send server
-        (fn [s]
-          (.stop s)
-          nil)))
-
-(defn get-handler-store
-  ([] (get-handler-store davstore))
-  ([h] (::store (:debug (h {:request-method :debug :uri "/debug"})))))
+  (defn get-handler-store
+    ([] (get-handler-store davstore))
+    ([h] (::store (:debug (h {:request-method :debug :uri "/debug"})))))
+  )
