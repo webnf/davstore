@@ -56,7 +56,7 @@ But letting the user directly interact with the file system, e.g. via an FTP ser
 - Files with identical content should be deduplicated
 
 ### ... steal git's file structure for blobs?
-The single-level git sha-1 radix tree is Mr. Torvalds' output of what must have been a comparatively long hammocking session over a principally simple question, that he is uniquely qualified to answer: What's the best tradeoff between collision-freeness, name-length, file-seek performance and input performance, with priority to file-seek performance.
+The single-level git sha-1 radix tree is Mr. Torvalds' output of what must have been a comparatively long hammocking session over a simple question, that he is uniquely qualified to answer: What's the best tradeoff between collision-freeness, name-length, file-seek performance and input performance, with priority to file-seek performance.
 
 ### ... not actually be git-compatible?
 This project's priority is to maximise serving performance from the blob storage. That rules out the transparent compression.
@@ -72,10 +72,7 @@ Windows requires level 2 DAV (mainly locks), which are not implemented yet.
 ## FAQ
 
 #### Can I use it without datomic?
-Right now, only the blob store and the XML parser for WebDAV are fully decoupled.
-So, in order to use the WebDAV ring handler with a different database, you will have to wait for a version with an intermediate data format for webdav requests between the handler and the storage backend.
-
-That said, just having the blob store handy is a big win already and that is a single, leaf namespace with slim dependencies.
+Not right now. Though you might be able to reuse the data.xml functions for webdav to write your own database binding.
 
 Pull Request welcome.
 
