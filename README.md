@@ -5,13 +5,11 @@ database to hold the directory structure.
 
 This started as a demo app for namespaced xml in clojure, but grew pretty practical.
 
-Even though the project is full of core.typed annotations, it can't yet claim to be type checked, because I couldn't make it work yet.
-
 ## Usage
 
 To quickly start a server from a checkout
 
-    git clone https://github.com/bendlas/davstore.git
+    git clone https://github.com/webnf/davstore.git
 	cd davstore
     lein ring server-headless 8080
 
@@ -28,7 +26,7 @@ The default webdav root is `#uuid "7178245f-5e6c-30fb-8175-c265b9fe6cb8"`
 For other use cases, please check out the code in `davstore.app` and FAQ.
 To use it as a library, add it to your dependencies:
 
-	[davstore "0.1.0-SNAPSHOT"]
+	[webnf/davstore "0.2.0-SNAPSHOT"]
 
 and use it as a ring handler:
 
@@ -90,10 +88,6 @@ It's the version 5 (named by sha-1) uuid of the clojure symbol `davstore.app/roo
 ```
 This is also the symbol, that it's bound to in the API.
 
-#### Why don't your core.typed annotations typecheck?
-I'm waiting on outstanding issues of core.typed and haven't bothered to remove the
-(hopefully still correct) annotations.
-
 #### What's missing?
 You tell me :-)
 
@@ -105,7 +99,7 @@ A few thoughts:
 
 ## License
 
-Copyright © 2014 Herwig Hochleitner
+Copyright ↄ⃝ 2016 Herwig Hochleitner
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.

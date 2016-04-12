@@ -3,9 +3,9 @@
             [clojure.data.xml :as xml]
             [clojure.string :as str]
             [clojure.tools.logging :as log]
+            [webnf.filestore :as blob]
+            [webnf.davstore.dav.xml :as dav]
             (webnf.davstore
-             [blob :as blob]
-             [dav.xml :as dav]
              [store :as store]
              [ext :as ext])
             [datomic.api :as d]
@@ -228,12 +228,12 @@
                        {:strs [content-type if-match]} :headers
                        uri :uri}]
                                         ;  (log/info "PUT" uri (pr-str path))
-  (let [blob-sha (blob/store-file (:blob-store store) body)
+  (let [blob-sha (blob/stream-copy-blob! (:blob-store store) body)
         path (remove str/blank? path)
         fname (last path)
         ctype (if (or (nil? content-type)
                       (= "application/octet-stream" content-type))
-                (infer-type (blob/get-file (:blob-store store) blob-sha)
+                (infer-type (blob/get-blob (:blob-store store) blob-sha)
                             fname)
                 content-type)]
     (match [(store/touch! store path

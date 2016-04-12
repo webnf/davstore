@@ -15,8 +15,8 @@
                  [webnf/datomic "_" :upgrade false]
                  [webnf/enlive  "_" :upgrade false]
                  [webnf/filestore  "_" :upgrade false]]
-                                        ; [webnf.deps/universe "0.1.19-SNAPSHOT"]
-                                        ; [webnf/cljs "0.1.19-SNAPSHOT"]
-                                        ; [ring/ring-jetty-adapter "1.4.0"]
-  :ring {:handler davstore.app/davstore
-         :nrepl {:start? true :port 4012}})
+  :profiles
+  {:dev {:source-paths ["src/devel"]
+         :dependencies [[ring/ring-jetty-adapter "1.4.0"]]
+         :ring {:handler webnf.davstore.test/davstore
+                :nrepl {:start? true :port 4012}}}})

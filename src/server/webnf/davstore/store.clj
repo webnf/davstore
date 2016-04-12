@@ -11,8 +11,8 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [datomic.api :as d :refer [q tempid transact transact-async create-database connect]]
+            [webnf.filestore :as blob]
             (webnf.davstore
-             [blob :as blob :refer [make-store store-file get-file]]
              [ext :as ext]
              [schema :refer [ensure-schema!]])
             [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]))
@@ -345,7 +345,7 @@
        :result :created})))
 
 (defn blob-file [{bs :blob-store} {sha1 ::dfc/sha-1}]
-  (get-file bs sha1))
+  (blob/get-blob bs sha1))
 
 (defn- ls-seq
   [store {:keys [::dd/children ::de/type] :as e} dir depth]
@@ -422,8 +422,9 @@
     (println (slurp (blob-file store sha1)))))
 
 (defn- store-str [{:keys [blob-store]} ^String s]
-  (store-file blob-store (java.io.ByteArrayInputStream.
-                          (.getBytes s "UTF-8"))))
+  (blob/stream-copy-blob!
+   blob-store (java.io.ByteArrayInputStream.
+               (.getBytes s "UTF-8"))))
 
 (defn store-tp [store path content]
   (touch! store path "text/plain; charset=utf-8" (store-str store content) nil))
