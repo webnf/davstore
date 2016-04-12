@@ -1,12 +1,13 @@
-(ns davstore.dav
+(ns webnf.davstore.dav
   (:require [clojure.core.match :refer [match]]
             [clojure.data.xml :as xml]
             [clojure.string :as str]
             [clojure.tools.logging :as log]
-            [davstore.blob :as blob]
-            [davstore.dav.xml :as dav]
-            [davstore.store :as store]
-            [davstore.ext :as ext]
+            (webnf.davstore
+             [blob :as blob]
+             [dav.xml :as dav]
+             [store :as store]
+             [ext :as ext])
             [datomic.api :as d]
             [ring.util.response :refer [created]]
             [webnf.base :refer [pprint-str]]
@@ -19,13 +20,14 @@
            java.util.Date))
 
 (xml/alias-ns
- :de  :davstore.entry
- :det :davstore.entry.type
- :des :davstore.entry.snapshot
- :dr  :davstore.root
- :dd  :davstore.dir
- :dfc :davstore.file.content
- :dfn :davstore.fn)
+ :app :webnf.davstore.app
+ :de  :webnf.davstore.entry
+ :det :webnf.davstore.entry.type
+ :des :webnf.davstore.entry.snapshot
+ :dr  :webnf.davstore.root
+ :dd  :webnf.davstore.dir
+ :dfc :webnf.davstore.file.content
+ :dfn :webnf.davstore.fn)
 
 (defn entry-status [{:as want-props :keys [::dav/all ::dav/names-only]}
                     {:keys [path blob-file]
@@ -81,7 +83,7 @@
                  (str/split (subs uri (count root-dir)) #"/"))))))
 
 (defn to-path [{{:keys [root-dir]
-                 :or {root-dir "/"}} :davstore.app/store
+                 :or {root-dir "/"}} ::app/store
                  {host "host"} :headers}
                uri]
   (let [uri* (URI/create uri)
@@ -123,11 +125,11 @@
 ;; Handlers
 
 (defhandler options [_ _]
-  {:status 200
-   :headers {"DAV" "2"}})
+  {:status 204
+   :headers {"dav" "2"}})
 
 (defhandler propfind [path {:as req
-                            store :davstore.app/store
+                            store ::app/store
                             {:strs [depth content-length]} :headers
                             uri :uri}]
 ;  (log/info "PROPFIND" uri (pr-str path) "depth" depth)
@@ -135,6 +137,7 @@
                              (case depth
                                "0" 0
                                "1" 1
+                               ;; FIXME: apparently the revised value of infinity is now 18446744073709551616
                                "infinity" 65536)))]
     (let [want-props (if (= "0" content-length)
                        {::dav/all true}
@@ -144,7 +147,7 @@
                         (propfind-status (:root-dir store) fs want-props (:ext-props store))))})
     {:status 404}))
 
-(defhandler read [path {:as req store :davstore.app/store uri :uri}]
+(defhandler read [path {:as req store ::app/store uri :uri}]
 ;  (log/info "GET" uri (pr-str path))
   (let [db (store/store-db store)]
     (loop [{:as entry
@@ -161,13 +164,13 @@
             {:status 405 :body (str uri " is a directory")}))
         {:status 404 :body (str "File " uri " not found")}))))
 
-(defhandler mkcol [path {:as req uri :uri store :davstore.app/store}]
+(defhandler mkcol [path {:as req uri :uri store ::app/store}]
   ;; FIXME normalize path for all
 ;  (log/info "MKCOL" uri (pr-str path))
   (store/mkdir! store (remove str/blank? path))
   (created uri))
 
-(defhandler delete [path {:as req store :davstore.app/store
+(defhandler delete [path {:as req store ::app/store
                           {etag "if-match"
                            depth "depth"} :headers}]
 ;  (log/info "DELETE" (:uri req) (pr-str path))
@@ -178,7 +181,7 @@
                nil true))
   {:status 204})
 
-(defhandler move [path {:as req store :davstore.app/store
+(defhandler move [path {:as req store ::app/store
                         {:strs [depth overwrite destination]} :headers
                         uri :uri}]
 ;  (log/info "MOVE" uri (pr-str path) "to" destination)
@@ -199,7 +202,7 @@
            :result :created}]
          (created destination)))
 
-(defhandler copy [path {:as req store :davstore.app/store
+(defhandler copy [path {:as req store ::app/store
                         {:strs [depth overwrite destination]} :headers
                         uri :uri}]
 ;  (log/info "COPY" uri (pr-str path) "to" destination)
@@ -220,7 +223,7 @@
            :result :created}]
          (created destination)))
 
-(defhandler put [path {:as req store :davstore.app/store
+(defhandler put [path {:as req store ::app/store
                        body :body
                        {:strs [content-type if-match]} :headers
                        uri :uri}]
@@ -240,7 +243,7 @@
            [{:success :updated}] {:status 204}
            [{:success :created}] (created uri))))
 
-(defhandler proppatch [path {:as req store :davstore.app/store
+(defhandler proppatch [path {:as req store ::app/store
                              body :body}]
   (let [prop-updates (dav/parse-propertyupdate (xml/parse body))]
     (match [(store/propertyupdate! store path prop-updates)]
@@ -256,7 +259,7 @@
                                                      (filter (comp #{:not-found} :status))
                                                      (map #(vector (:prop %) []))))}))})))
 
-(defhandler lock [path {:as req store :davstore.app/store
+(defhandler lock [path {:as req store ::app/store
                         {:strs [depth]} :headers
                         body :body}]
   (let [entry (store/get-entry store (remove str/blank? path))
@@ -271,7 +274,7 @@
                                      :timeout "Second-60"
                                      :token (java.util.UUID/randomUUID)))}))}))
 
-(defhandler unlock [path {:as req store :davstore.app/store
+(defhandler unlock [path {:as req store ::app/store
                           {:strs [lock-token]} :headers}]
   ;; (log/info "unlock token" lock-token)
   {:status 204})

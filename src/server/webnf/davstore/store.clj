@@ -1,4 +1,4 @@
-(ns davstore.store
+(ns webnf.davstore.store
   (:import datomic.db.Db
            (java.io ByteArrayOutputStream OutputStreamWriter
                     InputStream OutputStream)
@@ -11,9 +11,10 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [datomic.api :as d :refer [q tempid transact transact-async create-database connect]]
-            [davstore.blob :as blob :refer [make-store store-file get-file]]
-            [davstore.ext :as ext]
-            [davstore.schema :refer [ensure-schema!]]
+            (webnf.davstore
+             [blob :as blob :refer [make-store store-file get-file]]
+             [ext :as ext]
+             [schema :refer [ensure-schema!]])
             [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]))
 
 (defmacro spy [& exprs]
@@ -32,14 +33,14 @@
          res#))))
 
 (alias-ns
- :dav :davstore.dav.xml
- :de  :davstore.entry
- :det :davstore.entry.type
- :des :davstore.entry.snapshot
- :dr  :davstore.root
- :dd  :davstore.dir
- :dfc :davstore.file.content
- :dfn :davstore.fn)
+ :dav :webnf.davstore.dav.xml
+ :de  :webnf.davstore.entry
+ :det :webnf.davstore.entry.type
+ :des :webnf.davstore.entry.snapshot
+ :dr  :webnf.davstore.root
+ :dd  :webnf.davstore.dir
+ :dfc :webnf.davstore.file.content
+ :dfn :webnf.davstore.fn)
 
 ;; ## SHA-1 Stuff
 
@@ -123,7 +124,7 @@
             (throw (ex-info "Cannot refer to unnamed file"
                             {:error :missing/name
                              :missing/path path})))
-        dir-entries (path-entries db [:davstore.root/id root] dir-path)
+        dir-entries (path-entries db [::dr/id root] dir-path)
         _ (when-not dir-entries
             (throw (ex-info "Directory missing"
                             {:error :missing/directory
@@ -369,7 +370,7 @@
          cur-date (Date.)
          root-dir {:db/id rdir-id
                    ::de/name (str \{ uuid \})
-                   ::de/type :davstore.entry.type/dir
+                   ::de/type ::det/dir
                    ::de/created cur-date
                    ::de/last-modified cur-date}
          tx [(assoc root-entity
@@ -383,7 +384,7 @@
 
 (defn open-root! [{:keys [conn] :as store} uuid create-if-missing]
   (let [db (d/db conn)
-        root' (d/entity db [:davstore.root/id uuid])
+        root' (d/entity db [::dr/id uuid])
         root (cond
               root' root'
               create-if-missing (create-root! conn uuid create-if-missing)

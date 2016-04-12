@@ -1,4 +1,4 @@
-(ns davstore.client.dired
+(ns webnf.davstore.dired
   (:require
    [om.core :as om]
    [om-tools.dom :as dom]

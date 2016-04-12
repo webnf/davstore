@@ -1,26 +1,27 @@
-(ns davstore.app
+(ns webnf.davstore.app
   (:require [clojure.java.io :as io]
             [clojure.data.xml :as xml]
             [clojure.pprint :refer [pprint]]
             [clojure.tools.logging :as log]
             [datomic.api :as d :refer [delete-database connect]]
-            [davstore.blob :as blob]
-            [davstore.dav :as dav]
-            [davstore.store :as store]
-            [davstore.ext :as ext]
             [net.cgrand.moustache :refer [app uri-segments path-info-segments uri]]
             [ring.middleware.head :refer [wrap-head]]
             [ring.util.response :refer [response header status content-type not-found]]
-            [webnf.kv :refer [map-keys]]))
+            [webnf.kv :refer [map-keys]]
+            (webnf.davstore
+             [blob :as blob]
+             [dav :as dav]
+             [store :as store]
+             [ext :as ext])))
 
 (xml/alias-ns
- :de  :davstore.entry
- :det :davstore.entry.type
- :des :davstore.entry.snapshot
- :dr  :davstore.root
- :dd  :davstore.dir
- :dfc :davstore.file.content
- :dfn :davstore.fn)
+ :de  :webnf.davstore.entry
+ :det :webnf.davstore.entry.type
+ :des :webnf.davstore.entry.snapshot
+ :dr  :webnf.davstore.root
+ :dd  :webnf.davstore.dir
+ :dfc :webnf.davstore.file.content
+ :dfn :webnf.davstore.fn)
 
 ;; Middlewares
 
@@ -80,10 +81,6 @@
              :lock (dav/lock path)
              :unlock (dav/unlock path)}))
 
-(def blob-dir "/tmp/davstore-app")
-(def db-uri "datomic:mem://davstore-app")
-(def root-id #uuid "7178245f-5e6c-30fb-8175-c265b9fe6cb8")
-
 (defn wrap-log [h]
   (fn [req]
     (let [bos (java.io.ByteArrayOutputStream.)
@@ -120,6 +117,9 @@
 
 ;; Quick and embedded dav server
 (comment
+  (def blob-dir "/tmp/davstore-app")
+  (def db-uri "datomic:mem://davstore-app")
+  (def root-id #uuid "7178245f-5e6c-30fb-8175-c265b9fe6cb8")
   (require '[ring.adapter.jetty :as rj])
   (declare davstore)
   (defonce server (agent nil))

@@ -1,4 +1,4 @@
-(ns davstore.client.dav
+(ns webnf.davstore.dav
   (:require
    [cljs.core.async :refer [map< <! >! chan]]
    [clojure.string :as str]
@@ -154,15 +154,6 @@
                      (<! (proplist uri path :on-auth on-auth))))
                 path)
         {:uri uri :root-path path :on-auth on-auth}))))
-
-(comment
-  (defn test-tree []
-    (tree "http://static.bendlas.net" "/jakob-kapeller.org"
-          (fn [req]
-            (go ["authorization" "Basic aGVyd2lnQGJlbmRsYXMubmV0OkhGVmJ4ZmFu"]))))
-  (go (def dav-tree
-        (<! (test-tree)))))
-
 
 (defn get-path [path on-auth]
   (map<

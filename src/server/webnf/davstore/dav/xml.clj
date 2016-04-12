@@ -1,4 +1,4 @@
-(ns davstore.dav.xml
+(ns webnf.davstore.dav.xml
   (:require [clojure.data.xml :as xml]
             [clojure.core.match :refer [match]]
             [clojure.tools.logging :as log]))
@@ -9,8 +9,8 @@
 ;; They can be used to denote namespaced xml names in as regular clojure keywords
 
 (xml/declare-ns
- :davstore.dav.xml "DAV:"
- :davstore.ext "//dav.bendlas.net/extension-elements")
+ :webnf.davstore.dav.xml "DAV:"
+ :webnf.davstore.ext "urn:webnf:davstore:ext")
 
 (defn multi? [v]
   (or (list? v) (vector? v)))
@@ -81,20 +81,11 @@
 ;; # XML output
 
 (defn emit [xt]
-  ;; FIXME: Should the emitter be able to pick up a defns clause?
-  ;; What about foreign names?
-  ;; Auto shorten prefix?
-  ;; Need to predeclare?
-  ;; Declare inline in emitter, taking space cost?
   (with-open [w (java.io.StringWriter. 1024)]
     (xml/emit
      (-> xt
-                                        ; DAV: needs to have a prefix
-                                        ; (not default namespace)
-                                        ; for windows compatibility
-         (assoc-in [:attrs :xmlns/d] "DAV:")
-                                        ; reserved for custom attributes
-         (assoc-in [:attrs :xmlns/b] "//dav.bendlas.net/extension-elements"))
+         (assoc-in [:attrs :xmlns/d] (xml/ns-uri (str (ns-name *ns*))))
+         (assoc-in [:attrs :xmlns/e] (xml/ns-uri "webnf.davstore.ext")))
      w)
     (.toString w)))
 

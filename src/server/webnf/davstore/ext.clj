@@ -1,4 +1,4 @@
-(ns davstore.ext)
+(ns webnf.davstore.ext)
 
 (defprotocol ExtensionProperty
   (xml-content [p entity])
