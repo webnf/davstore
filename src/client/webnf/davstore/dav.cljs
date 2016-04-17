@@ -4,10 +4,24 @@
    [clojure.string :as str]
    [goog.dom :as gdom]
    [goog.object :as gob]
-   [webnf.util :refer [log log-pr xhr hmap]]
+   [webnf.base.logging :as log]
+   [webnf.js.xhr :refer [xhr hmap]]
    [cljs.core.match :refer-macros [match]]
    [cljs.pprint :refer [pprint]])
   (:require-macros [cljs.core.async.macros :refer [go]]))
+
+#_(ns hdirect.dav
+    (:require
+     [hdirect.conf :refer [server server-url root-path]]
+     [cljs.core.async :refer [map< <! >! chan]]
+     [cljs.reader :refer [read-string]]
+     [clojure.string :as str]
+     [goog.dom :as gdom]
+     [goog.object :as gob]
+     [webnf.util :refer [log log-pr xhr hmap]]
+     [cljs.core.match :refer-macros [match]]
+     [cljs.pprint :refer [pprint]])
+    (:require-macros [cljs.core.async.macros :refer [go]]))
 
 (defn- dav-request-fn [req-fn on-auth]
   (go (let [first-resp (<! (req-fn {}))]
@@ -17,12 +31,14 @@
           first-resp))))
 
 (defn- to-path [href]
-  (let [p (str/split href #"/")]
+  (let [p (map js/decodeURIComponent
+               (str/split (str/replace href "+" " ")
+                          #"/"))]
     (assert (= "" (first p)))
     (vec (rest p))))
 
 (defn- to-href [path]
-  (str "/" (str/join "/" path)))
+  (str "/" (str/join "/" (map js/encodeURIComponent path))))
 
 (defn subpath [path & sub]
   (assert (or (vector? path)
@@ -41,7 +57,11 @@
                              add-headers
                              add-headers*)
              :body "<?xml version=\"1.0\"?><propfind xmlns=\"DAV:\"><allprop/></propfind>"
-             :xml true}))
+             :parse-response #(hash-map
+                               :uri (.getLastUri %)
+                               :status (.getStatus %)
+                               :headers (hmap (.getAllResponseHeaders %))
+                               :body (.getResponseXml %))}))
      on-auth)))
 
 (defn tag= [ns-uri local-name]
@@ -79,6 +99,7 @@
                (assoc! ret
                        (match [(.-namespaceURI ch) (.-localName ch)]
                               ["DAV:" name] (keyword "dav" name)
+                              ["//dav.bendlas.net/extension-elements" name] (keyword "bdav" name)
                               [ns name] (str \{ ns \} name))
                        (prop-el-value ch))))))
 
@@ -95,7 +116,7 @@
                      (assoc! ret :status (parse-status (.-textContent ch)))
                      (prop? ch)
                      (parse-prop-el* ch ret)
-                     :else (do (log "WARN" "Unknown propstat element" ch)
+                     :else (do (log/warn "Unknown propstat element" ch)
                                ret))))))
 
 (defn- parse-response-el [el]
@@ -109,7 +130,7 @@
                           (assoc! :path (to-path (.-textContent ch))))
                       (propstat? ch)
                       (parse-propstat-el* ch ret)
-                      :else (do (log "WARN" "Unknown response element" ch)
+                      :else (do (log/warn "Unknown response element" ch)
                                 ret)))))))
 
 (defmethod parse-dav-response 207 [{:keys [uri status headers body]}]
@@ -154,6 +175,7 @@
                      (<! (proplist uri path :on-auth on-auth))))
                 path)
         {:uri uri :root-path path :on-auth on-auth}))))
+
 
 (defn get-path [path on-auth]
   (map<
@@ -201,6 +223,26 @@
 (def error ::error)
 (def result ::result)
 
+(defn propset! [tree path props nss]
+  (let [{:keys [uri root-path on-auth]} (meta tree)]
+    (map< parse-dav-response
+          (dav-request-fn
+           (fn [add-headers*]
+             (xhr (str uri (to-href path))
+                  {:method "PROPPATCH"
+                   :headers (-> add-headers*
+                                (cond-> getetag (assoc "If-Match" getetag)))
+                   :body (str "<?xml version=\"1.0\"?><propertyupdate xmlns=\"DAV:\"><set><prop"
+                              (str/join " "
+                                        (cons ""
+                                         (for [[a n] nss]
+                                           (str "xmlns:" a "=\"" n "\""))))
+                              ">"
+                              (apply str (for [[p v] props]
+                                           (str "<" p ">" v "</" p ">")))
+                              "</prop></set></propertyupdate>")}))
+           on-auth))))
+
 (defn delete! [tree path & [getetag]]
   (let [{:keys [uri root-path on-auth]} (meta tree)]
     (map< parse-dav-response (dav-request-fn
@@ -211,3 +253,22 @@
                                                    (cond-> getetag (assoc "If-Match" getetag))
                                                    (assoc "Depth" "0"))}))
                               on-auth))))
+
+(defn move! [tree from-path to-path]
+  (let [{:keys [uri root-path on-auth]} (meta tree)]
+    (go
+      (log/log-pr
+       :MOVE (str uri (to-href from-path))
+       (str uri (to-href to-path))
+       :RESULT
+       ;; NOTE: root-path is added here, since move of root collection is not allowed
+       (<!
+        (map< parse-dav-response (dav-request-fn
+                                  (fn [add-headers*]
+                                    (xhr (str uri (to-href (concat root-path from-path)))
+                                         {:method "MOVE"
+                                          :headers
+                                          (-> add-headers*
+                                              (assoc "Destination"
+                                                     (str uri (to-href (concat root-path to-path)))))}))
+                                  on-auth)))))))

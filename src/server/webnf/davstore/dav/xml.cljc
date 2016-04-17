@@ -1,7 +1,9 @@
 (ns webnf.davstore.dav.xml
   (:require [clojure.data.xml :as xml]
-            [clojure.core.match :refer [match]]
-            [clojure.tools.logging :as log]))
+            #?@(:clj [[clojure.core.match :refer [match]]
+                      [clojure.tools.logging :as log]]
+                :cljs [[cljs.core.match :refer-macros [match]]
+                       [webnf.base.logging :as log]])))
 
 ;; # Namespaced xml parsing
 
@@ -21,13 +23,11 @@
 (defn error! [& {:as attrs}]
   (throw (ex-info (str "XML parsing error " attrs) attrs)))
 
+;; ### server - input elements
+
 (defn parse-props [props]
   (reduce (fn [pm prop]
             (match [prop]
-                   ;; FIXME: The parser should be able to parse in a namespace-local mode
-                   ;; to keywordize names mentioned in the defns clause
-                   ;; But maybe not, because then equal parses from different ns
-                   ;; wouldn't be = anymore
                    [{:tag ::allprop}]
                    (assoc pm ::all true)
                    [{:tag ::propname}]
@@ -81,45 +81,44 @@
 ;; # XML output
 
 (defn emit [xt]
-  (with-open [w (java.io.StringWriter. 1024)]
-    (xml/emit
-     (-> xt
-         (assoc-in [:attrs :xmlns/d] (xml/ns-uri (str (ns-name *ns*))))
-         (assoc-in [:attrs :xmlns/e] (xml/ns-uri "webnf.davstore.ext")))
-     w)
-    (.toString w)))
+  (xml/emit-str
+   (-> xt
+       (assoc-in [:attrs :xmlns/d] (xml/ns-uri (str (ns-name *ns*))))
+       (assoc-in [:attrs :xmlns/e] (xml/ns-uri "webnf.davstore.ext")))))
 
-(def get-status-phrase
-  (into {}
-        (for [^java.lang.reflect.Field f (.getFields java.net.HttpURLConnection)
-              :let [name (.getName f)]
-              :when (.startsWith name "HTTP_")
-              :let [code (.get f java.net.HttpURLConnection)]]
-          [code name])))
+#?(:clj (def get-status-phrase
+          (into {}
+                (for [^java.lang.reflect.Field f (.getFields java.net.HttpURLConnection)
+                      :let [name (.getName f)]
+                      :when (.startsWith name "HTTP_")
+                      :let [code (.get f java.net.HttpURLConnection)]]
+                  [code name]))))
 
 (defn- element [name content]
   (xml/element* name nil (to-multi content)))
 
 (defn props [ps]
-  (xml/aggregate-xmlns
+  (#?(:clj  xml/aggregate-xmlns
+      ;; FIXME cljs support for processing
+      :cljs identity)
    (xml/element* ::prop nil
                  (for [[n v] ps
                        :when v]
                    (element n v)))))
 
-(defn- status [code]
-  (xml/element ::status nil (if (number? code)
-                              (str "HTTP/1.1 " code " " (get-status-phrase code))
-                              (str code))))
+#?(:clj (defn- status [code]
+          (xml/element ::status nil (if (number? code)
+                                      (str "HTTP/1.1 " code " " (get-status-phrase code))
+                                      (str code)))))
 
-(defn propstat [& {:as status-props}]
-  (reduce-kv (fn [r st ps]
-               (if (and st (seq ps))
-                 (conj r (xml/element ::propstat nil
-                                      (props ps)
-                                      (status st)))
-                 r))
-             [] status-props))
+#?(:clj (defn propstat [& {:as status-props}]
+          (reduce-kv (fn [r st ps]
+                       (if (and st (seq ps))
+                         (conj r (xml/element ::propstat nil
+                                              (props ps)
+                                              (status st)))
+                         r))
+                     [] status-props)))
 
 (defn response [href status-or-propstat]
   (xml/element* ::response nil
@@ -142,3 +141,25 @@
             (element ::owner owner)
             (element ::timeout timeout)
             (element ::locktoken (element ::href (str "urn:uuid:" token)))]))
+
+;; ### client - input elements
+
+(defn propfind
+  ([] (propfind ::allprop))
+  ([properties]
+   (element
+    ::propfind
+    [(if (= ::allprop props)
+       (xml/element ::allprop)
+       (xml/element ::prop {} (props properties)))])))
+
+(defn propertyupdate [properties nss]
+  (xml/element
+   ::propertyupdate {}
+   (xml/element
+    ::set {}
+    (xml/element
+     ::prop (reduce-kv (fn [nss pf ns]
+                         (assoc nss (keyword "xmlns" pf) ns))
+                       {} nss)
+     (props properties)))))

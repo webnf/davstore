@@ -41,7 +41,7 @@
     (let [uri-segs (uri-segments req)
           path-segs (path-info-segments req)
           n (- (count uri-segs) (count path-segs))]
-      (h (assoc req :root-path (take n uri-segs))))))
+      (h (assoc req :root-dir (take n uri-segs))))))
 
 ;; Handlers
 
@@ -90,5 +90,6 @@
     (fn [req]
       (if (= :options (:request-method req))
         {:status 204 :headers hdr}
-        (update-in (h req) [:headers] #(merge hdr %))))))
+        (when-let [resp (h req)]
+          (update-in resp [:headers] #(merge hdr %)))))))
 
