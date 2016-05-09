@@ -1,5 +1,6 @@
 (ns webnf.davstore.dav.xml
   (:require [clojure.data.xml :as xml]
+            [webnf.davstore.ext :as ext]
             #?@(:clj [[clojure.core.match :refer [match]]
                       [clojure.tools.logging :as log]]
                 :cljs [[cljs.core.match :refer-macros [match]]
@@ -43,8 +44,10 @@
 (defn parse-propfind [pf]
   (match [pf]
          [{:tag ::propfind
+           :attrs attrs
            :content props}]
-         (parse-props props)))
+         (assoc (parse-props props)
+                ::ext/propfind.attrs attrs)))
 
 (defn parse-propertyupdate [pu]
   (match [pu]
