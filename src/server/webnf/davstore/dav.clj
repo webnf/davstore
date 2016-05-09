@@ -12,7 +12,8 @@
             [ring.util.response :refer [created]]
             [webnf.base :refer [pprint-str]]
             [webnf.kv :refer [map-vals assoc-when* treduce-kv]]
-            [webnf.date :as date])
+            [webnf.date :as date]
+            [webnf.async-servlet :as as])
   (:import java.io.File
            java.net.URI
            java.net.URLEncoder
@@ -128,24 +129,56 @@
   {:status 204
    :headers {"dav" "2"}})
 
+(defn incremental-body [listeners]
+  (if (> t since-t)
+    (comment incremental body)
+    {:body (fn [ctx]
+             (let [state (ref :waiting)
+                   age (agent nil)]
+               (dosync (commute listeners assoc ctx))
+               {:error (fn [e]
+                         (log/error "Listener crashed" e)
+                         (dosync (case (ensure state)
+                                   :waiting (do (ref-set state :closed)
+                                                (commute listeners dissoc ctx)
+                                                (send age (fn [_]
+                                                            (as/status ctx 500)
+                                                            (as/complete ctx)))))))
+                :timeout (fn [e]
+                           (log/debug "Listener went away" e))
+                :complete (fn [e]
+                            (log/trace "Listener completed" e))}))}))
+
 (defhandler propfind [path {:as req
                             store ::app/store
                             {:strs [depth content-length]} :headers
                             uri :uri}]
-;  (log/info "PROPFIND" uri (pr-str path) "depth" depth)
-  (if-let [fs (seq (store/ls store (remove str/blank? path) 
-                             (case depth
-                               "0" 0
-                               "1" 1
-                               ;; FIXME: apparently the revised value of infinity is now 18446744073709551616
-                               "infinity" 65536)))]
-    (let [want-props (if (= "0" content-length)
-                       {::dav/all true}
-                       (dav/parse-propfind (xml/parse (:body req))))]
-      {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
-       :body (dav/emit (dav/multistatus
-                        (propfind-status (:root-dir store) fs want-props (:ext-props store))))})
-    {:status 404}))
+                                        ;  (log/info "PROPFIND" uri (pr-str path) "depth" depth)
+  (let [want-props (if (= "0" content-length)
+                     {::dav/all true}
+                     (dav/parse-propfind (xml/parse (:body req))))
+        {:keys [::ext/as-of ::ext/incremental-since]} (::ext/propfind.attrs want-props)]
+    (log/info "PROPFIND" (pr-str path) (pr-str want-props))
+    (let ;; BEWARE, stateful ordering
+        [db (store-db store)
+         store (assoc store :db (cond-> db as-of (d/as-of (Long/parseLong as-of))))]
+      ;;   / ----
+        (if incremental-since
+          (let [since-t (Long/parseLong incremental-since)]
+            (incremental-body store db since-t))
+          (if-let [fs (seq (store/ls store
+                                     (remove str/blank? path)
+                                     (case depth
+                                       "0" 0
+                                       "1" 1
+                                       ;; FIXME: apparently the revised value of infinity is now 18446744073709551616
+                                       "infinity" 65536)))]
+            {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
+             :body (dav/emit
+                    (assoc-in (dav/multistatus
+                               (propfind-status (:root-dir store) fs want-props (:ext-props store)))
+                              [:attrs ::ext/as-of ()]))}
+            {:status 404})))))
 
 (defhandler read [path {:as req store ::app/store uri :uri}]
 ;  (log/info "GET" uri (pr-str path))
