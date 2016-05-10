@@ -129,25 +129,28 @@
   {:status 204
    :headers {"dav" "2"}})
 
-(defn incremental-body [listeners]
-  (if (> t since-t)
-    (comment incremental body)
-    {:body (fn [ctx]
-             (let [state (ref :waiting)
-                   age (agent nil)]
-               (dosync (commute listeners assoc ctx))
-               {:error (fn [e]
-                         (log/error "Listener crashed" e)
-                         (dosync (case (ensure state)
-                                   :waiting (do (ref-set state :closed)
-                                                (commute listeners dissoc ctx)
-                                                (send age (fn [_]
-                                                            (as/status ctx 500)
-                                                            (as/complete ctx)))))))
-                :timeout (fn [e]
-                           (log/debug "Listener went away" e))
-                :complete (fn [e]
-                            (log/trace "Listener completed" e))}))}))
+(defn incremental-body [store since-t]
+  (let [db (store/store-db store)
+        t (d/basis-t db)
+        listeners (:listeners store)]
+    (if (> t since-t)
+      (comment incremental body)
+      {:body (fn [ctx]
+               (let [state (ref :waiting)
+                     age (agent nil)]
+                 (dosync (commute listeners assoc ctx))
+                 {:error (fn [e]
+                           (log/error "Listener crashed" e)
+                           (dosync (case (ensure state)
+                                     :waiting (do (ref-set state :closed)
+                                                  (commute listeners dissoc ctx)
+                                                  (send age (fn [_]
+                                                              (as/status ctx 500)
+                                                              (as/complete ctx)))))))
+                  :timeout (fn [e]
+                             (log/debug "Listener went away" e))
+                  :complete (fn [e]
+                              (log/trace "Listener completed" e))}))})))
 
 (defhandler propfind [path {:as req
                             store ::app/store
@@ -160,7 +163,7 @@
         {:keys [::ext/as-of ::ext/incremental-since]} (::ext/propfind.attrs want-props)]
     (log/info "PROPFIND" (pr-str path) (pr-str want-props))
     (let ;; BEWARE, stateful ordering
-        [db (store-db store)
+        [db (store/store-db store)
          store (assoc store :db (cond-> db as-of (d/as-of (Long/parseLong as-of))))]
       ;;   / ----
         (if incremental-since
