@@ -177,10 +177,10 @@
                                        ;; FIXME: apparently the revised value of infinity is now 18446744073709551616
                                        "infinity" 65536)))]
             {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
-             :body (dav/emit
-                    (assoc-in (dav/multistatus
-                               (propfind-status (:root-dir store) fs want-props (:ext-props store)))
-                              [:attrs ::ext/as-of ()]))}
+             :body (-> (propfind-status (:root-dir store) fs want-props (:ext-props store))
+                       dav/multistatus
+                       (assoc-in [:attrs ::ext/as-of] (str (d/basis-t db)))
+                       dav/emit)}
             {:status 404})))))
 
 (defhandler read [path {:as req store ::app/store uri :uri}]
