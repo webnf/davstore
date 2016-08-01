@@ -5,7 +5,8 @@
            (java.security MessageDigest)
            (java.util UUID Date)
            javax.xml.bind.DatatypeConverter)
-  (:require [clojure.data.xml :refer [alias-ns]]
+  (:require [clojure.core.match :refer [match]]
+            [clojure.data.xml :refer [alias-ns]]
             [clojure.pprint :refer :all]
             [clojure.repl :refer :all]
             [clojure.string :as str]
@@ -15,6 +16,7 @@
             (webnf.davstore
              [ext :as ext]
              [schema :refer [ensure-schema!]])
+            [webnf.datomic :as wd]
             [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]))
 
 (defmacro spy [& exprs]
@@ -172,40 +174,38 @@
                      :cas/expected match-type
                      :cas/current type}))))
 
-(deffileop touch! "PUT" [{:keys [conn root] :as store} path mime-type sha-1* match-sha-1]
-  (let [db (store-db store)
-        {:keys [dir-entries cas-tx]
+(deffileop touch! "PUT" [{:keys [db root]} path mime-type sha-1* match-sha-1]
+  (let [{:keys [dir-entries cas-tx]
          {parent-id :db/id} :parent
          {:as current-entry :keys [db/id]} :current-entry}
         (entry-info! db root path)
         _ (match-entry! current-entry match-sha-1 ::det/file)
         id* (if current-entry id (tempid :db.part/davstore.entries))
-        cur-date (Date.)
-        tx (concat cas-tx
-                   [[:db/add id* ::dfc/mime-type (or mime-type "application/octet-stream")]
-                    [:db/add id* ::de/last-modified cur-date]
-                    [:db/add parent-id ::de/last-modified cur-date]]
-                   (when (or (not current-entry)
-                             (= match-sha-1 :current))
-                     [[:db/add id* ::de/created cur-date]])
-                   (if current-entry
-                     [[:db.fn/cas id* ::dfc/sha-1
-                       (if (= :current match-sha-1)
-                         (::dfc/sha-1 current-entry)
-                         match-sha-1)
-                       sha-1*]]
-                     [{:db/id id*
-                       ::dd/_children parent-id
-                       ::de/type ::det/file
-                       ::dfc/sha-1 sha-1*
-                       ::de/name (last path)}]))
-        res @(transact conn tx)]
-    ;(log/debug "File touch success" res)
-    (if current-entry
-      {:success :updated}
-      {:success :created})))
+        cur-date (Date.)]
+                                        ; (log/debug "File touch success" res)
+    (assoc (if current-entry
+             {:success :updated}
+             {:success :created})
+           ::wd/tx (concat cas-tx
+                           [[:db/add id* ::dfc/mime-type (or mime-type "application/octet-stream")]
+                            [:db/add id* ::de/last-modified cur-date]
+                            [:db/add parent-id ::de/last-modified cur-date]]
+                           (when (or (not current-entry)
+                                     (= match-sha-1 :current))
+                             [[:db/add id* ::de/created cur-date]])
+                           (if current-entry
+                             [[:db.fn/cas id* ::dfc/sha-1
+                               (if (= :current match-sha-1)
+                                 (::dfc/sha-1 current-entry)
+                                 match-sha-1)
+                               sha-1*]]
+                             [{:db/id id*
+                               ::dd/_children parent-id
+                               ::de/type ::det/file
+                               ::dfc/sha-1 sha-1*
+                               ::de/name (last path)}])))))
 
-(deffileop propertyupdate! "PROPPATCH" [{:as store :keys [conn root ext-props]} path {:keys [set-props remove-props]}]
+(deffileop propertyupdate! "PROPPATCH" [{:as store :keys [root ext-props]} path {:keys [set-props remove-props]}]
   (if-let [entry (get-entry store path)]
     (let [prop-results (fn [props to-ext-tx]
                          (map (fn [[prop val]]
@@ -216,15 +216,14 @@
                               props))
           results (concat (prop-results set-props ext/db-add-tx)
                           (prop-results remove-props (fn [ext-prop _ _]
-                                                       (ext/db-retract-tx ext-prop entry))))
-          res @(transact conn (mapcat :tx results))]
-      ;(log/debug "PROPPATCH success" res (map :result results))
-      {:status :multi :propstat (map :result results)})
+                                                       (ext/db-retract-tx ext-prop entry))))]
+                                        ; (log/debug "PROPPATCH success" res (map :result results))
+      {:status :multi :propstat (map :result results)
+       ::wd/tx (mapcat :tx results)})
     {:status :not-found}))
 
-(deffileop mkdir! "MKCOL" [{:as store :keys [conn root]} path]
-  (let [db (store-db store)
-        {:keys [dir-entries cas-tx]
+(deffileop mkdir! "MKCOL" [{:as store :keys [db root]} path]
+  (let [{:keys [dir-entries cas-tx]
          {parent-id :db/id} :parent
          {:as current-entry :keys [db/id de/type]} :current-entry}
         (entry-info! db root path)
@@ -238,21 +237,19 @@
                              :cas/expected nil
                              :cas/current type})))
         id* (tempid :db.part/davstore.entries)
-        cur-date (Date.)
-        tx (cons {:db/id (tempid :db.part/davstore.entries)
-                  ::dd/_children parent-id
-                  ::de/name (last path)
-                  ::de/type ::det/dir
-                  ::de/created cur-date
-                  ::de/last-modified cur-date}
-                 cas-tx)
-        res @(transact conn tx)]
-    ;(log/debug "Mkdir success" res)
-    {:success :created}))
+        cur-date (Date.)]
+                                        ; (log/debug "Mkdir success" res)
+    {:success :created
+     ::wd/tx (cons {:db/id (tempid :db.part/davstore.entries)
+                    ::dd/_children parent-id
+                    ::de/name (last path)
+                    ::de/type ::det/dir
+                    ::de/created cur-date
+                    ::de/last-modified cur-date}
+                   cas-tx)}))
 
-(deffileop rm! "DELETE" [{:keys [conn root] :as store} path match-sha-1 recursive]
-  (let [db (store-db store)
-        {:keys [dir-entries cas-tx]
+(deffileop rm! "DELETE" [{:keys [db root] :as store} path match-sha-1 recursive]
+  (let [{:keys [dir-entries cas-tx]
          {parent-id :db/id} :parent
          {:as current-entry :keys [db/id ::de/type ::dd/children]} :current-entry}
         (entry-info! db root path)
@@ -260,15 +257,14 @@
         _ (when (and (not recursive) (seq children))
             (throw (ex-info "Directory not empty"
                             {:error :dir-not-empty
-                             :path path})))
-        tx (concat [[:db/add parent-id ::de/last-modified (Date.)]
-                    [:db.fn/retractEntity id]]
-                   (when-not recursive
-                     [[::dfn/assert-val id ::dd/children nil]])
-                   cas-tx)
-        res @(transact conn tx)]
-    ;(log/debug "rm success" res)
-    {:success :deleted}))
+                             :path path})))]
+                                        ; (log/debug "rm success" res)
+    {:success :deleted
+     ::wd/tx (concat [[:db/add parent-id ::de/last-modified (Date.)]
+                      [:db.fn/retractEntity id]]
+                     (when-not recursive
+                       [[::dfn/assert-val id ::dd/children nil]])
+                     cas-tx)}))
 
 (defn cp-cas [{{:as from type ::de/type} :current-entry
                from-cas :cas-tx
@@ -296,24 +292,22 @@
            [:db/add parent-id ::dd/children tid]
            (mapcat #(cp-tx tid %) (::dd/children entry)))))
 
-(deffileop cp! "COPY" [{:keys [conn root] :as store}
+(deffileop cp! "COPY" [{:keys [db root] :as store}
                        from-path to-path recursive overwrite]
-  (let [db (store-db store)
-        {:as from from-entry :current-entry} (entry-info! db root from-path)
-        {:as to to-parent :parent to-entry :current-entry} (entry-info! db root to-path)
-        tx (concat (cp-cas from to recursive overwrite)
-                   (when to-entry
-                     [[:db.fn/retractEntity (:db/id to-entry)]])
-                   (cp-tx (:db/id to-parent)
-                          (-> (into {} from-entry)
-                              (assoc ::de/name (last to-path)))))
-        res @(transact conn tx)]
-    ;(log/debug "cp success" res)
-    (if to-entry
-      {:success :copied
-       :result :overwritten}
-      {:success :copied
-       :result :created})))
+  (let [{:as from from-entry :current-entry} (entry-info! db root from-path)
+        {:as to to-parent :parent to-entry :current-entry} (entry-info! db root to-path)]
+                                        ;(log/debug "cp success" res)
+    (assoc (if to-entry
+             {:success :copied
+              :result :overwritten}
+             {:success :copied
+              :result :created})
+           ::wd/tx (concat (cp-cas from to recursive overwrite)
+                           (when to-entry
+                             [[:db.fn/retractEntity (:db/id to-entry)]])
+                           (cp-tx (:db/id to-parent)
+                                  (-> (into {} from-entry)
+                                      (assoc ::de/name (last to-path))))))))
 
 (defn mv-tx [from-parent-id to-parent-id entry-id new-name]
   (let [cur-date (Date.)]
@@ -331,18 +325,17 @@
                     {:error :target-removed :path to-path})))
   (let [db (store-db store)
         {:as from from-parent :parent from-entry :current-entry} (entry-info! db root from-path)
-        {:as to to-parent :parent to-entry :current-entry} (entry-info! db root to-path)
-        tx (concat (cp-cas from to recursive overwrite)
-                   (when to-entry
-                     [[:db.fn/retractEntity (:db/id to-entry)]])
-                   (mv-tx (:db/id from-parent) (:db/id to-parent) (:db/id from-entry) (last to-path)))
-        res @(transact conn tx)]
-    ;(log/debug "mv success" res)
-    (if to-entry
-      {:success :moved
-       :result :overwritten}
-      {:success :moved
-       :result :created})))
+        {:as to to-parent :parent to-entry :current-entry} (entry-info! db root to-path)]
+                                        ; (log/debug "mv success" res)
+    (assoc (if to-entry
+             {:success :moved
+              :result :overwritten}
+             {:success :moved
+              :result :created})
+           ::wd/tx (concat (cp-cas from to recursive overwrite)
+                           (when to-entry
+                             [[:db.fn/retractEntity (:db/id to-entry)]])
+                           (mv-tx (:db/id from-parent) (:db/id to-parent) (:db/id from-entry) (last to-path))))))
 
 (defn blob-file [{bs :blob-store} {sha1 ::dfc/sha-1}]
   (blob/get-blob bs sha1))
@@ -465,3 +458,4 @@
                               akw v})
                :else (conj out [e akw v]))))
           [] (sort-by :e datoms)))
+

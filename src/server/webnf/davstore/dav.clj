@@ -202,62 +202,66 @@
 
 (defhandler mkcol [path {:as req uri :uri store ::app/store}]
   ;; FIXME normalize path for all
-;  (log/info "MKCOL" uri (pr-str path))
-  (store/mkdir! store (remove str/blank? path))
-  (created uri))
+                                        ; (log/info "MKCOL" uri (pr-str path))
+  (merge (store/mkdir! store (remove str/blank? path))
+         (created uri)))
 
 (defhandler delete [path {:as req store ::app/store
                           {etag "if-match"
                            depth "depth"} :headers}]
-;  (log/info "DELETE" (:uri req) (pr-str path))
-  (store/rm! store (remove str/blank? path) (or (parse-etag etag) :current)
-             (case depth
-               "0" false
-               "infinity" true
-               nil true))
-  {:status 204})
+                                        ;  (log/info "DELETE" (:uri req) (pr-str path))
+  (merge (store/rm! store (remove str/blank? path) (or (parse-etag etag) :current)
+                    (case depth
+                      "0" false
+                      "infinity" true
+                      nil true))
+         {:status 204}))
 
 (defhandler move [path {:as req store ::app/store
                         {:strs [depth overwrite destination]} :headers
                         uri :uri}]
-;  (log/info "MOVE" uri (pr-str path) "to" destination)
-  (match [(store/mv! store (remove str/blank? path)
-                     (to-path req destination)
-                     (case depth
-                       "0" false
-                       "infinity" true
-                       nil true)
-                     (case overwrite
-                       "T" true
-                       "F" false
-                       nil false))]
-         [{:success :moved
-           :result :overwritten}]
-         {:status 204}
-         [{:success :moved
-           :result :created}]
-         (created destination)))
+                                        ;  (log/info "MOVE" uri (pr-str path) "to" destination)
+  (let [result (store/mv! store (remove str/blank? path)
+                          (to-path req destination)
+                          (case depth
+                            "0" false
+                            "infinity" true
+                            nil true)
+                          (case overwrite
+                            "T" true
+                            "F" false
+                            nil false))]
+    (merge result
+           (match [result]
+                  [{:success :moved
+                    :result :overwritten}]
+                  {:status 204}
+                  [{:success :moved
+                    :result :created}]
+                  (created destination)))))
 
 (defhandler copy [path {:as req store ::app/store
                         {:strs [depth overwrite destination]} :headers
                         uri :uri}]
-;  (log/info "COPY" uri (pr-str path) "to" destination)
-  (match [(store/cp! store (remove str/blank? path)
-                     (to-path req destination)
-                     (case depth
-                       "0" false
-                       "infinity" true
-                       nil true)
-                     (case overwrite
-                       "T" true
-                       "F" false
-                       nil false))]
-         [{:success :copied
-           :result :overwritten}]
-         {:status 204}
-         [{:success :copied
-           :result :created}]
-         (created destination)))
+                                        ;  (log/info "COPY" uri (pr-str path) "to" destination)
+  (let [result (store/cp! store (remove str/blank? path)
+                          (to-path req destination)
+                          (case depth
+                            "0" false
+                            "infinity" true
+                            nil true)
+                          (case overwrite
+                            "T" true
+                            "F" false
+                            nil false))]
+    (merge result
+           (match [result]
+                  [{:success :copied
+                    :result :overwritten}]
+                  {:status 204}
+                  [{:success :copied
+                    :result :created}]
+                  (created destination)))))
 
 (defhandler put [path {:as req store ::app/store
                        body :body
@@ -271,29 +275,33 @@
                       (= "application/octet-stream" content-type))
                 (infer-type (blob/get-blob (:blob-store store) blob-sha)
                             fname)
-                content-type)]
-    (match [(store/touch! store path
-                          ctype
-                          blob-sha
-                          (or (parse-etag if-match) :current))]
-           [{:success :updated}] {:status 204}
-           [{:success :created}] (created uri))))
+                content-type)
+        result (store/touch! store path
+                             ctype
+                             blob-sha
+                             (or (parse-etag if-match) :current))]
+    (merge result
+           (match [result]
+                  [{:success :updated}] {:status 204}
+                  [{:success :created}] (created uri)))))
 
 (defhandler proppatch [path {:as req store ::app/store
                              body :body}]
-  (let [prop-updates (dav/parse-propertyupdate (xml/parse body))]
-    (match [(store/propertyupdate! store path prop-updates)]
-           [{:status :not-found}] {:status 404}
-           [{:status :multi :propstat propstat}]
-           {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
-            :body (dav/emit (dav/multistatus
-                             {(apply pjoin (:root-dir store) path)
-                              (dav/propstat 200 (->> propstat
-                                                     (filter (comp #{:ok} :status))
-                                                     (map #(vector (:prop %) [])))
-                                            404 (->> propstat
-                                                     (filter (comp #{:not-found} :status))
-                                                     (map #(vector (:prop %) []))))}))})))
+  (let [prop-updates (dav/parse-propertyupdate (xml/parse body))
+        result (store/propertyupdate! store path prop-updates)]
+    (merge result
+           (match [result]
+                  [{:status :not-found}] {:status 404}
+                  [{:status :multi :propstat propstat}]
+                  {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
+                   :body (dav/emit (dav/multistatus
+                                    {(apply pjoin (:root-dir store) path)
+                                     (dav/propstat 200 (->> propstat
+                                                            (filter (comp #{:ok} :status))
+                                                            (map #(vector (:prop %) [])))
+                                                   404 (->> propstat
+                                                            (filter (comp #{:not-found} :status))
+                                                            (map #(vector (:prop %) []))))}))}))))
 
 (defhandler lock [path {:as req store ::app/store
                         {:strs [depth]} :headers
@@ -329,4 +337,3 @@
                [data] (do (log/error e "Unhandled Exception during" (:request-method req) (:uri req)
                                      "\nException Info:" (pr-str data))
                           {:status 500}))))))
-

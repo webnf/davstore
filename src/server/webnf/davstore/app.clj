@@ -9,6 +9,7 @@
             [ring.util.response :refer [response header status content-type not-found]]
             [webnf.kv :refer [map-keys]]
             [webnf.filestore :as blob]
+            [webnf.datomic :as wd]
             (webnf.davstore
              [dav :as dav]
              [store :as store]
@@ -28,18 +29,19 @@
 (defn wrap-store [h & {:keys [blob-path db-uri root-uuid root-uri ext-props add-schema]}]
   (assert (and blob-path db-uri root-uuid root-uri))
   (let [store (blob/make-store! blob-path)
-        dstore (assoc (store/init-store! db-uri store root-uuid true)
-                      :root-dir root-uri
-                      :ext-props (map-keys xml/canonical-name ext-props))]
+        {:keys [conn] :as dstore}
+        (assoc (store/init-store! db-uri store root-uuid true)
+               :root-dir root-uri
+               :ext-props (map-keys xml/canonical-name ext-props))]
     (when (seq add-schema)
       (log/info "Adding extra schema" add-schema)
-      (let [conn (d/connect db-uri)
-            {db :db-after} @(d/transact conn add-schema)]
+      (let [{db :db-after} @(d/transact conn add-schema)]
         (d/sync-schema conn (d/basis-t db))))
-    (fn [req]
-      (h (assoc req
-                ::store (store/open-db dstore)
-                ::bstore store)))))
+    (-> (fn [req]
+          (h (assoc req
+                    ::store (store/open-db dstore)
+                    ::bstore store)))
+        (wd/wrap-execute-tx conn))))
 
 (defn wrap-root [h]
   (fn [req]
