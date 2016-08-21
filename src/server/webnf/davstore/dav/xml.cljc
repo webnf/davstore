@@ -30,9 +30,9 @@
   (reduce (fn [pm prop]
             (match [prop]
                    [{:tag ::allprop}]
-                   (assoc pm ::all true)
+                   (assoc pm ::allprop true)
                    [{:tag ::propname}]
-                   (assoc pm ::names-only true)
+                   (assoc pm ::propname true)
                    [{:tag ::prop
                      :content content}]
                    (reduce (fn [pm {pn :tag pv :content}]
@@ -109,29 +109,22 @@
                        :when v]
                    (element n v)))))
 
-#?(:clj (defn- status [code]
-          (xml/element ::status nil (if (number? code)
-                                      (str "HTTP/1.1 " code " " (get-status-phrase code))
-                                      (str code)))))
+(defn- status [code]
+  (xml/element ::status nil (if (number? code)
+                              #?(:clj  (str "HTTP/1.1 " code " " (get-status-phrase code))
+                                 :cljs (str "HTTP/1.1 " code))
+                              (str code))))
 
-#?(:clj (defn propstat [& {:as status-props}]
-          (reduce-kv (fn [r st ps]
-                       (if (and st (seq ps))
-                         (conj r (xml/element ::propstat nil
-                                              (props ps)
-                                              (status st)))
-                         r))
-                     [] status-props)))
-
-(defn response [href status-or-propstat]
-  (xml/element* ::response nil
-                (cons (xml/element ::href nil href)
-                      (to-multi status-or-propstat))))
-
-(defn multistatus [href-s-o-ps]
+(defn multistatus [href-propstats]
   (xml/element* ::multistatus nil
-                (for [[href s-o-ps] href-s-o-ps]
-                  (response href s-o-ps))))
+                (for [[href st-pr] href-propstats]
+                  (xml/element* ::response nil
+                                (cons (xml/element ::href nil href)
+                                      (if (number? st-pr)
+                                        [(status st-pr)]
+                                        (for [[st pr] st-pr]
+                                          (xml/element ::propstat {}
+                                                       (props pr) (status st)))))))))
 
 (defn- dav-prop [kw]
   {:tag (xml/qname "DAV:" (name kw))})

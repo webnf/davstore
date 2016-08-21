@@ -30,31 +30,31 @@
  :dfc :webnf.davstore.file.content
  :dfn :webnf.davstore.fn)
 
-(defn entry-status [{:as want-props :keys [::dav/all ::dav/names-only]}
+(defn entry-status [{:as want-props :keys [::dav/allprop ::dav/propname]}
                     {:keys [path blob-file]
                      {:as entry
                       :keys [::dfc/mime-type ::de/type ::dfc/sha-1
                              ::de/name ::de/created ::de/last-modified]}
                      :entity}
                     extension-props]
-  (let [props* (assoc-when* (fn* ([k] (or all (contains? want-props k)))
+  (let [props* (assoc-when* (fn* ([k] (or allprop (contains? want-props k)))
                                  ([k v] (not (nil? v))))
-                            {}
-                            ::dav/displayname name
-                            ::dav/getcontenttype mime-type
-                            ::dav/getetag (when sha-1 (str \" sha-1 \"))
-                            ::dav/getlastmodified (date/format-http (or last-modified (Date. 0)))
-                            ::dav/creationdate (date/format-http (or created (Date. 0)))
-                            ::dav/resourcetype
-                            (case type
-                              ;; here you can see, how to refer to xml names externally
-                              ::det/dir (xml/element ::dav/collection)
-                              ::det/file (xml/element ::ext/file))
-                            ::dav/getcontentlength (and blob-file (str (.length ^File blob-file))))
+                 {}
+                 ::dav/displayname name
+                 ::dav/getcontenttype mime-type
+                 ::dav/getetag (when sha-1 (str \" sha-1 \"))
+                 ::dav/getlastmodified (date/format-http (or last-modified (Date. 0)))
+                 ::dav/creationdate (date/format-http (or created (Date. 0)))
+                 ::dav/resourcetype
+                 (case type
+                   ;; here you can see, how to refer to xml names externally
+                   ::det/dir (xml/element ::dav/collection)
+                   ::det/file (xml/element ::ext/file))
+                 ::dav/getcontentlength (and blob-file (str (.length ^File blob-file))))
         props (treduce-kv (fn [tr qname ext-prop]
                             (assoc! tr qname (ext/xml-content ext-prop entry)))
                           props* extension-props)]
-    (if names-only
+    (if propname
       (map-vals (constantly nil) props)
       props)))
 
@@ -73,8 +73,8 @@
 (defn propfind-status [^String root-dir files {:as want-props :keys [::dav/all ::dav/names-only]} extension-elements]
   (reduce (fn [m {:keys [path] :as entry}]
             (assoc m
-              (apply pjoin root-dir path)
-              (dav/propstat 200 (entry-status want-props entry extension-elements))))
+                   (apply pjoin root-dir path)
+                   {200 (entry-status want-props entry extension-elements)}))
           {} files))
 
 (def path-matcher
@@ -296,12 +296,12 @@
                   {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
                    :body (dav/emit (dav/multistatus
                                     {(apply pjoin (:root-dir store) path)
-                                     (dav/propstat 200 (->> propstat
-                                                            (filter (comp #{:ok} :status))
-                                                            (map #(vector (:prop %) [])))
-                                                   404 (->> propstat
-                                                            (filter (comp #{:not-found} :status))
-                                                            (map #(vector (:prop %) []))))}))}))))
+                                     {200 (->> propstat
+                                               (filter (comp #{:ok} :status))
+                                               (map #(vector (:prop %) [])))
+                                      404 (->> propstat
+                                               (filter (comp #{:not-found} :status))
+                                               (map #(vector (:prop %) [])))}}))}))))
 
 (defhandler lock [path {:as req store ::app/store
                         {:strs [depth]} :headers
