@@ -13,9 +13,10 @@
             (webnf.davstore
              [dav :as dav]
              [store :as store]
-             [ext :as ext])))
+             [ext :as ext]
+             [util :refer [alias-ns]])))
 
-(xml/alias-ns
+(alias-ns
  :de  :webnf.davstore.entry
  :det :webnf.davstore.entry.type
  :des :webnf.davstore.entry.snapshot

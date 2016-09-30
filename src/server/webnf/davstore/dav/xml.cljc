@@ -1,19 +1,20 @@
 (ns webnf.davstore.dav.xml
   (:require [clojure.data.xml :as xml]
-            [webnf.davstore.ext :as ext]
             #?@(:clj [[clojure.core.match :refer [match]]
                       [clojure.tools.logging :as log]]
                 :cljs [[cljs.core.match :refer-macros [match]]
-                       [webnf.base.logging :as log]])))
+                       [webnf.base.logging :as log]])
+            [#xml/ns "DAV:" :as dav]
+            [#xml/ns "urn:webnf:davstore:ext" :as ext]))
 
 ;; # Namespaced xml parsing
 
 ;; ## Set up runtime - global keyword prefixes
 ;; They can be used to denote namespaced xml names in as regular clojure keywords
 
-(xml/declare-ns
- :webnf.davstore.dav.xml "DAV:"
- :webnf.davstore.ext "urn:webnf:davstore:ext")
+#_(xml/alias-uri
+   :dav "DAV:"
+   :ext "urn:webnf:davstore:ext")
 
 (defn multi? [v]
   (or (list? v) (vector? v)))
@@ -29,11 +30,11 @@
 (defn parse-props [props]
   (reduce (fn [pm prop]
             (match [prop]
-                   [{:tag ::allprop}]
-                   (assoc pm ::allprop true)
-                   [{:tag ::propname}]
-                   (assoc pm ::propname true)
-                   [{:tag ::prop
+                   [{:tag ::dav/allprop}]
+                   (assoc pm ::dav/allprop true)
+                   [{:tag ::dav/propname}]
+                   (assoc pm ::dav/propname true)
+                   [{:tag ::dav/prop
                      :content content}]
                    (reduce (fn [pm {pn :tag pv :content}]
                              (assoc pm pn pv))
@@ -43,7 +44,7 @@
 
 (defn parse-propfind [pf]
   (match [pf]
-         [{:tag ::propfind
+         [{:tag ::dav/propfind
            :attrs attrs
            :content props}]
          (assoc (parse-props props)
@@ -51,33 +52,33 @@
 
 (defn parse-propertyupdate [pu]
   (match [pu]
-         [{:tag ::propertyupdate
+         [{:tag ::dav/propertyupdate
            :content updates}]
          (reduce
           #(match [%2]
-                  [{:tag ::set :content props}] (update %1 :set-props merge (parse-props props))
-                  [{:tag ::remove :content props}] (update %1 :remove-props merge (parse-props props)))
+                  [{:tag ::dav/set :content props}] (update %1 :set-props merge (parse-props props))
+                  [{:tag ::dav/remove :content props}] (update %1 :remove-props merge (parse-props props)))
           {} updates)))
 
 (defn parse-lock [lock-props]
   (reduce (fn [lm prop]
             (match [prop]
-                   [{:tag ::lockscope
+                   [{:tag ::dav/lockscope
                      :content ([scope] :seq)}]
                    (assoc lm :scope (match [scope]
-                                           [{:tag ::exclusive}] :exclusive
-                                           [{:tag ::shared}] :shared))
-                   [{:tag ::locktype
-                     :content ([{:tag ::write}] :seq)}]
+                                           [{:tag ::dav/exclusive}] :exclusive
+                                           [{:tag ::dav/shared}] :shared))
+                   [{:tag ::dav/locktype
+                     :content ([{:tag ::dav/write}] :seq)}]
                    (assoc lm :type :write)
-                   [{:tag ::owner
+                   [{:tag ::dav/owner
                      :content owner-info}]
                    (assoc lm :owner owner-info)))
           {} lock-props))
 
 (defn parse-lockinfo [li]
   (match [li]
-         [{:tag ::lockinfo
+         [{:tag ::dav/lockinfo
            :content lock}]
          (parse-lock lock)))
 
@@ -86,8 +87,8 @@
 (defn emit [xt]
   (xml/emit-str
    (-> xt
-       (assoc-in [:attrs :xmlns/d] (xml/ns-uri (str (ns-name *ns*))))
-       (assoc-in [:attrs :xmlns/e] (xml/ns-uri "webnf.davstore.ext")))))
+       (assoc-in [:attrs :xmlns/d] "DAV:")
+       (assoc-in [:attrs :xmlns/e] "urn:webnf:davstore:ext"))))
 
 #?(:clj (def get-status-phrase
           (into {}
@@ -104,58 +105,58 @@
   (#?(:clj  xml/aggregate-xmlns
       ;; FIXME cljs support for processing
       :cljs identity)
-   (xml/element* ::prop nil
+   (xml/element* ::dav/prop nil
                  (for [[n v] ps
                        :when v]
                    (element n v)))))
 
 (defn- status [code]
-  (xml/element ::status nil (if (number? code)
+  (xml/element ::dav/status nil (if (number? code)
                               #?(:clj  (str "HTTP/1.1 " code " " (get-status-phrase code))
                                  :cljs (str "HTTP/1.1 " code))
                               (str code))))
 
 (defn multistatus [href-propstats]
-  (xml/element* ::multistatus nil
+  (xml/element* ::dav/multistatus nil
                 (for [[href st-pr] href-propstats]
-                  (xml/element* ::response nil
-                                (cons (xml/element ::href nil href)
+                  (xml/element* ::dav/response nil
+                                (cons (xml/element ::dav/href nil href)
                                       (if (number? st-pr)
                                         [(status st-pr)]
                                         (for [[st pr] st-pr]
-                                          (xml/element ::propstat {}
+                                          (xml/element ::dav/propstat {}
                                                        (props pr) (status st)))))))))
 
 (defn- dav-prop [kw]
   {:tag (xml/qname "DAV:" (name kw))})
 
 (defn activelock [{:keys [scope type owner depth timeout token]}]
-  (element ::activelock
-           [(element ::locktype (dav-prop type))
-            (element ::lockscope (dav-prop scope))
-            (element ::depth depth)
-            (element ::owner owner)
-            (element ::timeout timeout)
-            (element ::locktoken (element ::href (str "urn:uuid:" token)))]))
+  (element ::dav/activelock
+           [(element ::dav/locktype (dav-prop type))
+            (element ::dav/lockscope (dav-prop scope))
+            (element ::dav/depth depth)
+            (element ::dav/owner owner)
+            (element ::dav/timeout timeout)
+            (element ::dav/locktoken (element ::dav/href (str "urn:uuid:" token)))]))
 
 ;; ### client - input elements
 
 (defn propfind
-  ([] (propfind ::allprop))
+  ([] (propfind ::dav/allprop))
   ([properties]
    (element
-    ::propfind
-    [(if (= ::allprop props)
-       (xml/element ::allprop)
-       (xml/element ::prop {} (props properties)))])))
+    ::dav/propfind
+    [(if (= ::dav/allprop props)
+       (xml/element ::dav/allprop)
+       (xml/element ::dav/prop {} (props properties)))])))
 
 (defn propertyupdate [properties nss]
   (xml/element
-   ::propertyupdate {}
+   ::dav/propertyupdate {}
    (xml/element
-    ::set {}
+    ::dav/set {}
     (xml/element
-     ::prop (reduce-kv (fn [nss pf ns]
+     ::dav/prop (reduce-kv (fn [nss pf ns]
                          (assoc nss (keyword "xmlns" pf) ns))
                        {} nss)
      (props properties)))))

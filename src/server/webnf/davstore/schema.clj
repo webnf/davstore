@@ -1,7 +1,7 @@
 (ns webnf.davstore.schema
   (:import java.util.UUID)
   (:require
-   [clojure.data.xml :refer [alias-ns]]
+   [webnf.davstore.util :refer [alias-ns]]
    [datomic.api :as d :refer [tempid]]
    [webnf.datomic :refer [field enum function defn-db]]
    [webnf.datomic.version :as ver]

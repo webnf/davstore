@@ -4,10 +4,11 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [webnf.filestore :as blob]
-            [webnf.davstore.dav.xml :as dav]
+            [webnf.davstore.dav.xml :as davx]
             (webnf.davstore
              [store :as store]
-             [ext :as ext])
+             [ext :as extp]
+             [util :refer [alias-ns]])
             [datomic.api :as d]
             [ring.util.response :refer [created]]
             [webnf.base :refer [pprint-str]]
@@ -20,7 +21,7 @@
            java.nio.file.Files
            java.util.Date))
 
-(xml/alias-ns
+(alias-ns
  :app :webnf.davstore.app
  :de  :webnf.davstore.entry
  :det :webnf.davstore.entry.type
@@ -29,6 +30,10 @@
  :dd  :webnf.davstore.dir
  :dfc :webnf.davstore.file.content
  :dfn :webnf.davstore.fn)
+
+(xml/alias-uri
+ :dav "DAV:"
+ :ext "urn:webnf:davstore:ext")
 
 (defn entry-status [{:as want-props :keys [::dav/allprop ::dav/propname]}
                     {:keys [path blob-file]
@@ -52,7 +57,7 @@
                    ::det/file (xml/element ::ext/file))
                  ::dav/getcontentlength (and blob-file (str (.length ^File blob-file))))
         props (treduce-kv (fn [tr qname ext-prop]
-                            (assoc! tr qname (ext/xml-content ext-prop entry)))
+                            (assoc! tr qname (extp/xml-content ext-prop entry)))
                           props* extension-props)]
     (if propname
       (map-vals (constantly nil) props)
@@ -159,7 +164,7 @@
                                         ;  (log/info "PROPFIND" uri (pr-str path) "depth" depth)
   (let [want-props (if (= "0" content-length)
                      {::dav/all true}
-                     (dav/parse-propfind (xml/parse (:body req))))
+                     (davx/parse-propfind (xml/parse (:body req))))
         {:keys [::ext/as-of ::ext/incremental-since]} (::ext/propfind.attrs want-props)]
     (log/info "PROPFIND" (pr-str path) (pr-str want-props))
     (let ;; BEWARE, stateful ordering
@@ -178,9 +183,9 @@
                                        "infinity" 65536)))]
             {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
              :body (-> (propfind-status (:root-dir store) fs want-props (:ext-props store))
-                       dav/multistatus
+                       davx/multistatus
                        (assoc-in [:attrs ::ext/as-of] (str (d/basis-t db)))
-                       dav/emit)}
+                       davx/emit)}
             {:status 404})))))
 
 (defhandler read [path {:as req store ::app/store uri :uri}]
@@ -287,36 +292,36 @@
 
 (defhandler proppatch [path {:as req store ::app/store
                              body :body}]
-  (let [prop-updates (dav/parse-propertyupdate (xml/parse body))
+  (let [prop-updates (davx/parse-propertyupdate (xml/parse body))
         result (store/propertyupdate! store path prop-updates)]
     (merge result
            (match [result]
                   [{:status :not-found}] {:status 404}
                   [{:status :multi :propstat propstat}]
                   {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
-                   :body (dav/emit (dav/multistatus
-                                    {(apply pjoin (:root-dir store) path)
-                                     {200 (->> propstat
-                                               (filter (comp #{:ok} :status))
-                                               (map #(vector (:prop %) [])))
-                                      404 (->> propstat
-                                               (filter (comp #{:not-found} :status))
-                                               (map #(vector (:prop %) [])))}}))}))))
+                   :body (davx/emit (davx/multistatus
+                                     {(apply pjoin (:root-dir store) path)
+                                      {200 (->> propstat
+                                                (filter (comp #{:ok} :status))
+                                                (map #(vector (:prop %) [])))
+                                       404 (->> propstat
+                                                (filter (comp #{:not-found} :status))
+                                                (map #(vector (:prop %) [])))}}))}))))
 
 (defhandler lock [path {:as req store ::app/store
                         {:strs [depth]} :headers
                         body :body}]
   (let [entry (store/get-entry store (remove str/blank? path))
-        info (dav/parse-lockinfo (xml/parse body))]
+        info (davx/parse-lockinfo (xml/parse body))]
     ;; (log/debug "Lock Info\n" (pprint-str info))
     {:status (if entry 200 201)
-     :body (dav/emit
-            (dav/props
+     :body (davx/emit
+            (davx/props
              {::dav/lockdiscovery
-              (dav/activelock (assoc info
-                                     :depth depth
-                                     :timeout "Second-60"
-                                     :token (java.util.UUID/randomUUID)))}))}))
+              (davx/activelock (assoc info
+                                      :depth depth
+                                      :timeout "Second-60"
+                                      :token (java.util.UUID/randomUUID)))}))}))
 
 (defhandler unlock [path {:as req store ::app/store
                           {:strs [lock-token]} :headers}]

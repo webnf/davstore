@@ -6,7 +6,6 @@
            (java.util UUID Date)
            javax.xml.bind.DatatypeConverter)
   (:require [clojure.core.match :refer [match]]
-            [clojure.data.xml :refer [alias-ns]]
             [clojure.pprint :refer :all]
             [clojure.repl :refer :all]
             [clojure.string :as str]
@@ -15,7 +14,8 @@
             [webnf.filestore :as blob]
             (webnf.davstore
              [ext :as ext]
-             [schema :refer [ensure-schema!]])
+             [schema :refer [ensure-schema!]]
+             [util :refer [alias-ns]])
             [webnf.datomic :as wd]
             [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]))
 

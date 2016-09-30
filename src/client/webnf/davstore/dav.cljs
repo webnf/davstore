@@ -7,7 +7,9 @@
    [webnf.base.logging :as log]
    [webnf.js.xhr :refer [xhr hmap]]
    [cljs.core.match :refer-macros [match]]
-   [cljs.pprint :refer [pprint]])
+   [cljs.pprint :refer [pprint]]
+   [#xml/ns "DAV:" :as dav]
+   [#xml/ns "urn:webnf:davstore:ext" :as ext])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
 #_(ns hdirect.dav
