@@ -1,4 +1,4 @@
-(defproject webnf/davstore "0.2.0-SNAPSHOT"
+(defproject webnf/davstore "0.2.0-alpha1"
   :plugins [[lein-modules "0.3.11"]
             [lein-ring "0.9.7"]]
   :description "A file storage component with three parts:
