@@ -123,7 +123,8 @@
                                 (cons (xml/element ::dav/href nil href)
                                       (if (number? st-pr)
                                         [(status st-pr)]
-                                        (for [[st pr] st-pr]
+                                        (for [[st pr] st-pr
+                                              :when (not (empty? pr))]
                                           (xml/element ::dav/propstat {}
                                                        (props pr) (status st)))))))))
 
