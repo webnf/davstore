@@ -5,6 +5,6 @@
 (defn check [ns]
   (is (= :ok (check-ns ns)) (str "Typecheck for " ns)))
 
-(deftest main-typecheck
-  (check 'webnf.davstore.store))
+#_(deftest main-typecheck
+    (check 'webnf.davstore.store))
 
