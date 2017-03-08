@@ -1,4 +1,4 @@
-(ns davstore.type-check-test
+(ns webnf.davstore.type-check-test
   (:require [clojure.core.typed :refer [check-ns]]
             [clojure.test :refer :all]))
 
@@ -6,5 +6,5 @@
   (is (= :ok (check-ns ns)) (str "Typecheck for " ns)))
 
 (deftest main-typecheck
-  (check 'davstore.store))
+  (check 'webnf.davstore.store))
 

@@ -3,14 +3,15 @@
    (webnf.davstore
     [ext :as ext]
     [app :refer
-     [blob-handler file-handler wrap-access-control wrap-store]])
+     [blob-handler file-handler wrap-access-control wrap-store]]
+    [util :refer [alias-ns]])
    [clojure.pprint :refer [pprint]]
    [clojure.java.io :as io]
    [clojure.tools.logging :as log]
    [clojure.data.xml :as xml]
    [net.cgrand.moustache :refer [app]]))
 
-(xml/alias-ns
+(alias-ns
  :de  :webnf.davstore.entry
  :det :webnf.davstore.entry.type
  :des :webnf.davstore.entry.snapshot
@@ -18,6 +19,9 @@
  :dd  :webnf.davstore.dir
  :dfc :webnf.davstore.file.content
  :dfn :webnf.davstore.fn)
+
+(xml/alias-uri
+ :xmlext "urn:webnf:davstore:ext")
 
 ;; Quick and embedded dav server
 (def blob-dir "/tmp/davstore-app")
@@ -53,7 +57,7 @@
                :db-uri db-uri
                :root-uuid root-id
                :root-uri "/files"
-               :ext-props {::ext/index-file
+               :ext-props {::xmlext/index-file
                            (reify ext/ExtensionProperty
                              (db-add-tx [_ e content]
                                [[:db/add (:db/id e) ::dd/index-file (apply str content)]])

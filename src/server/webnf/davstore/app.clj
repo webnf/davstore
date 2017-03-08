@@ -33,7 +33,7 @@
         {:keys [conn] :as dstore}
         (assoc (store/init-store! db-uri store root-uuid true)
                :root-dir root-uri
-               :ext-props (map-keys xml/canonical-name ext-props))]
+               :ext-props (map-keys xml/as-qname ext-props))]
     (when (seq add-schema)
       (log/info "Adding extra schema" add-schema)
       (let [{db :db-after} @(d/transact conn add-schema)]

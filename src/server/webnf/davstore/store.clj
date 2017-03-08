@@ -19,23 +19,7 @@
             [webnf.datomic :as wd]
             [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]))
 
-(defmacro spy [& exprs]
-  (let [args (butlast exprs)
-        expr (last exprs)]
-    `(do 
-       ~@(for [arg args]
-           `(let [res# ~arg]
-              (pprint '~arg)
-              (println "=>")
-              (pprint res#)))
-       (let [res# ~expr]
-         (pprint '~expr)
-         (println "=>")
-         (pprint res#)
-         res#))))
-
 (alias-ns
- :dav :webnf.davstore.dav.xml
  :de  :webnf.davstore.entry
  :det :webnf.davstore.entry.type
  :des :webnf.davstore.entry.snapshot

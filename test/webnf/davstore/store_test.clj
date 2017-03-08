@@ -1,27 +1,50 @@
-(ns davstore.store-test
+(ns webnf.davstore.store-test
   (:require [clojure.test :refer :all]
-            [davstore.store :refer :all]
-            [davstore.blob :as blob]
+            [webnf.davstore.store :as store]
+            [webnf.filestore :as blob]
             [datomic.api :as d]
             [webnf.datomic.query :refer [reify-entity]]
             [clojure.pprint :refer :all]
             [clojure.repl :refer :all]
-            [clojure.data.xml :refer [alias-ns]]))
+            [webnf.davstore.util :refer [alias-ns]]))
+
 
 (alias-ns
- :de  :davstore.entry
- :det :davstore.entry.type
- :des :davstore.entry.snapshot
- :dr  :davstore.root
- :dd  :davstore.dir
- :dfc :davstore.file.content
- :dfn :davstore.fn)
+ :de  :webnf.davstore.entry
+ :det :webnf.davstore.entry.type
+ :des :webnf.davstore.entry.snapshot
+ :dr  :webnf.davstore.root
+ :dd  :webnf.davstore.dir
+ :dfc :webnf.davstore.file.content
+ :dfn :webnf.davstore.fn)
+
+(defn- exec-tx [store {:keys [webnf.datomic/tx]}]
+  @(d/transact (:conn store) tx))
+
+(defn store-tp [s p c]
+  (exec-tx s (store/store-tp s p c)))
+
+(defn mkdir! [s p]
+  (exec-tx s (store/mkdir! s p)))
+
+(defn touch! [s p m s ms]
+  (exec-tx s (store/touch! s p m s ms)))
+
+(defn cp! [s p tp r o]
+  (exec-tx s (store/cp! s p tp r o)))
+
+(defn mv! [s p tp r o]
+  (exec-tx s (store/mv! s p tp r o)))
+
+(defn rm! [s p m r]
+  (exec-tx s (store/rm! s p m r)))
 
 (defn insert-testdata [store]
-  (store-tp store ["a"] "a's content")
-  (store-tp store ["b"] "b's content")
-  (mkdir! store ["d"])
-  (store-tp store ["d" "c"] "d/c's content"))
+  (let [e (partial exec-tx store)]
+    (e (store-tp store ["a"] "a's content"))
+    (e (store-tp store ["b"] "b's content"))
+    (e (mkdir! store ["d"]))
+    (e (store-tp store ["d" "c"] "d/c's content"))))
 
 (def testdata-ref-tree
   {"a" "a's content"
@@ -36,8 +59,8 @@
                 db-uri (str "datomic:mem://davstore-test" uuid)
                 blob-path (str "/tmp/davstore-test" uuid)]
             (try
-              (let [blobstore (blob/make-store blob-path)]
-                (binding [*store* (init-store! db-uri blobstore uuid true)]
+              (let [blobstore (blob/make-store! blob-path)]
+                (binding [*store* (store/init-store! db-uri blobstore uuid true)]
                   ;; (pprint [:once (dissoc *store* :path-entry)])
                   (insert-testdata *store*)
                   (f)))
@@ -48,7 +71,7 @@
 (use-fixtures
     :each (fn [f]
             (let [uuid (d/squuid)]
-              (binding [*store* (open-root! *store* uuid {})]
+              (binding [*store* (store/open-root! *store* uuid {})]
                 ;; (pprint [:each (dissoc *store* :path-entry)])
                  (insert-testdata *store*)
                 (f)))))
@@ -62,14 +85,14 @@
 (deftest verification
   (test-verify-store)
   @(d/transact (:conn *store*)
-               [[:db/add (:db/id (get-entry *store* ["d" "c"]))
-                 :davstore.entry/name "C"]])
+               [[:db/add (:db/id (store/get-entry *store* ["d" "c"]))
+                 ::de/name "C"]])
   (test-verify-store false))
 
 (def ^:dynamic ^{:doc "testdata-ref-tree"} *trt*)
 
 (defn store-content [sha1]
-  (when-let [f (and sha1 (blob/get-file (:blob-store *store*) sha1))]
+  (when-let [f (and sha1 (blob/find-blob (:blob-store *store*) sha1))]
     (slurp f)))
 
 (defn match-tree
@@ -83,15 +106,15 @@
                    (reduce-kv
                     (fn [_ fname content]
                       (let [c (get ch fname)]
-                        (is c (str "File " fname " not present"))
+                        (is c (str "File `" fname "` not present"))
                         (match-tree c content)))
                     nil tree))
-     :else (throw))))
+     :else (throw (ex-info "No match" {})))))
 
 (defn match-root
   ([] (match-root *trt*))
   ([tree]
-     (match-tree (get-entry *store* []) tree)))
+     (match-tree (store/get-entry *store* []) tree)))
 
 (defn update-root! [f]
   (set! *trt* (f *trt*))
@@ -169,3 +192,21 @@
                    (mv! *store* ["d"] ["d" "D" "d'"] true false)))
       (mv! *store* ["d"] ["e" "D" "d'"] true false)
       (update-root! #(-> % (assoc-in ["e" "D" "d'"] (% "d")) (dissoc "d"))))))
+
+(comment
+
+  (def test-db-uuid (d/squuid))
+  (def test-db-uri (str "datomic:mem://davstore-test" test-db-uuid))
+  (def test-blob-path (str "/tmp/davstore-test/" test-db-uuid))
+  (def test-filestore (blob/make-store! test-blob-path))
+  (def test-store (store/init-store! test-db-uri test-filestore test-db-uuid true))
+  (insert-testdata test-store)
+  
+  (store/pr-tree test-store)
+  (binding [*store* test-store]
+    (match-root testdata-ref-tree))
+  (store/reify-entity (get-entry test-store ["a"]))
+
+  (cp! test-store ["a"] ["A"] false false)
+
+  )

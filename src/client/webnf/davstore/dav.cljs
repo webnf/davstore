@@ -12,19 +12,6 @@
    [#xml/ns "urn:webnf:davstore:ext" :as ext])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
-#_(ns hdirect.dav
-    (:require
-     [hdirect.conf :refer [server server-url root-path]]
-     [cljs.core.async :refer [map< <! >! chan]]
-     [cljs.reader :refer [read-string]]
-     [clojure.string :as str]
-     [goog.dom :as gdom]
-     [goog.object :as gob]
-     [webnf.util :refer [log log-pr xhr hmap]]
-     [cljs.core.match :refer-macros [match]]
-     [cljs.pprint :refer [pprint]])
-    (:require-macros [cljs.core.async.macros :refer [go]]))
-
 (defn- dav-request-fn [req-fn on-auth]
   (go (let [first-resp (<! (req-fn {}))]
         (if (and on-auth (= 401 (:status first-resp)))
