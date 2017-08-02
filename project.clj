@@ -17,6 +17,6 @@
   :profiles
   {:dev {:plugins [[lein-ring "0.12.0"]]
          :source-paths ["src/devel"]
-         :dependencies [[ring/ring-jetty-adapter "1.6.1"]]
+         :dependencies [[ring/ring-jetty-adapter "1.6.2"]]
          :ring {:handler webnf.davstore.test/davstore
                 :nrepl {:start? true :port 4012}}}})
