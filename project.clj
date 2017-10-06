@@ -7,15 +7,15 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :source-paths ["src/server" "src/client" "src/common"]
-  :dependencies [[org.clojure/clojure "1.9.0-alpha17"]
-                 [org.clojure/data.xml "0.2.0-alpha2"]
+  :dependencies [[org.clojure/clojure "1.9.0-beta1"]
+                 [org.clojure/data.xml "0.2.0-alpha3"]
                  [webnf/base "_" :upgrade false]
                  [webnf/handler "_" :upgrade false]
                  [webnf/datomic "_" :upgrade false]
                  [webnf/enlive  "_" :upgrade false]
                  [webnf/filestore  "_" :upgrade false]]
   :profiles
-  {:dev {:plugins [[lein-ring "0.12.0"]]
+  {:dev {:plugins [[lein-ring "0.12.1"]]
          :source-paths ["src/devel"]
          :dependencies [[ring/ring-jetty-adapter "1.6.2"]]
          :ring {:handler webnf.davstore.test/davstore
