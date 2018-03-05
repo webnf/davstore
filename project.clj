@@ -1,4 +1,4 @@
-(defproject webnf/davstore "0.2.0-alpha3-SNAPSHOT"
+(defproject webnf/davstore "0.2.0-alpha5"
   :plugins [[lein-modules "0.3.11"]]
   :description "A file storage component with three parts:
     - A blob store, storing in a git-like content-addressing scheme
