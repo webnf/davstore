@@ -1,19 +1,16 @@
 (ns webnf.davstore.schema
   (:import java.util.UUID)
   (:require
-   [webnf.davstore.util :refer [alias-ns]]
    [datomic.api :as d :refer [tempid]]
    [webnf.datomic :refer [field enum function defn-db]]
    [webnf.datomic.version :as ver]
-   [webnf.base :refer [pprint]]))
-
-(alias-ns
- :de  :webnf.davstore.entry
- :det :webnf.davstore.entry.type
- :des :webnf.davstore.entry.snapshot
- :dr  :webnf.davstore.root
- :dd  :webnf.davstore.dir
- :dfc :webnf.davstore.file.content)
+   [webnf.base :refer [pprint]]
+   [webnf.davstore.entry :as-alias de]
+   [webnf.davstore.entry.type :as-alias det]
+   [webnf.davstore.entry.snapshot :as-alias des]
+   [webnf.davstore.root :as-alias dr]
+   [webnf.davstore.dir :as-alias dd]
+   [webnf.davstore.file.content :as-alias dfc]))
 
 (defn-db webnf.davstore.fn/assert-val
   {:requires [[clojure.tools.logging :as log]]}

@@ -7,29 +7,25 @@
             [webnf.davstore.dav.xml :as davx]
             (webnf.davstore
              [store :as store]
-             [ext :as extp]
-             [util :refer [alias-ns]])
+             [ext :as extp])
             [datomic.api :as d]
             [ring.util.response :refer [created]]
             [webnf.base :refer [pprint-str]]
             [webnf.kv :refer [map-vals assoc-when* treduce-kv]]
             [webnf.date :as date]
-            [webnf.async-servlet :as as])
+            [webnf.davstore.app :as-alias app]
+            [webnf.davstore.entry :as-alias de]
+            [webnf.davstore.entry.type :as-alias det]
+            [webnf.davstore.entry.snapshot :as-alias des]
+            [webnf.davstore.root :as-alias dr]
+            [webnf.davstore.dir :as-alias dd]
+            [webnf.davstore.file.content :as-alias dfc]
+            [webnf.davstore.fn :as-alias dfn])
   (:import java.io.File
            java.net.URI
            java.net.URLEncoder
            java.nio.file.Files
            java.util.Date))
-
-(alias-ns
- :app :webnf.davstore.app
- :de  :webnf.davstore.entry
- :det :webnf.davstore.entry.type
- :des :webnf.davstore.entry.snapshot
- :dr  :webnf.davstore.root
- :dd  :webnf.davstore.dir
- :dfc :webnf.davstore.file.content
- :dfn :webnf.davstore.fn)
 
 (xml/alias-uri
  :dav "DAV:"
@@ -54,7 +50,8 @@
                  (case type
                    ;; here you can see, how to refer to xml names externally
                    ::det/dir (xml/element ::dav/collection)
-                   ::det/file (xml/element ::ext/file))
+                   ;; some may misinterpret this as directory
+                   ::det/file nil #_(xml/element ::ext/file))
                  ::dav/getcontentlength (and blob-file (str (.length ^File blob-file))))
         props (treduce-kv (fn [tr qname ext-prop]
                             (assoc! tr qname (extp/xml-content ext-prop entry)))
@@ -132,9 +129,9 @@
 
 (defhandler options [_ _]
   {:status 204
-   :headers {"dav" "2"}})
+   :headers {"dav" "1"}})
 
-(defn incremental-body [store since-t]
+#_(defn incremental-body [store since-t]
   (let [db (store/store-db store)
         t (d/basis-t db)
         listeners (:listeners store)]
@@ -164,29 +161,28 @@
                                         ;  (log/info "PROPFIND" uri (pr-str path) "depth" depth)
   (let [want-props (if (= "0" content-length)
                      {::dav/all true}
-                     (davx/parse-propfind (xml/parse (:body req))))
+                     (davx/parse-propfind (xml/parse (:body req) :include-node? #{:element})))
         {:keys [::ext/as-of ::ext/incremental-since]} (::ext/propfind.attrs want-props)]
     (log/info "PROPFIND" (pr-str path) (pr-str want-props))
-    (let ;; BEWARE, stateful ordering
-        [db (store/store-db store)
-         store (assoc store :db (cond-> db as-of (d/as-of (Long/parseLong as-of))))]
-      ;;   / ----
-        (if incremental-since
+    ;; BEWARE, stateful ordering
+    (let [db (store/store-db store)
+          store (assoc store :db (cond-> db as-of (d/as-of (Long/parseLong as-of))))]
+      #_(if incremental-since
           (let [since-t (Long/parseLong incremental-since)]
-            (incremental-body store db since-t))
-          (if-let [fs (seq (store/ls store
-                                     (remove str/blank? path)
-                                     (case depth
-                                       "0" 0
-                                       "1" 1
-                                       ;; FIXME: apparently the revised value of infinity is now 18446744073709551616
-                                       "infinity" 65536)))]
-            {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
-             :body (-> (propfind-status (:root-dir store) fs want-props (:ext-props store))
-                       davx/multistatus
-                       (assoc-in [:attrs ::ext/as-of] (str (d/basis-t db)))
-                       davx/emit)}
-            {:status 404})))))
+            (incremental-body store db since-t)))
+      (if-let [fs (seq (store/ls store
+                                 (remove str/blank? path)
+                                 (case depth
+                                   "0" 0
+                                   "1" 1
+                                   ;; FIXME: apparently the revised value of infinity is now 18446744073709551616
+                                   "infinity" 65536)))]
+        {:status 207 :headers {"content-type" "text/xml; charset=utf-8" "dav" "1"}
+         :body (-> (propfind-status (:root-dir store) fs want-props (:ext-props store))
+                   davx/multistatus
+                   (assoc-in [:attrs ::ext/as-of] (str (d/basis-t db)))
+                   davx/emit)}
+        {:status 404}))))
 
 (defhandler read [path {:as req store ::app/store uri :uri}]
 ;  (log/info "GET" uri (pr-str path))

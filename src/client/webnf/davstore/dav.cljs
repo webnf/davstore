@@ -5,11 +5,11 @@
    [goog.dom :as gdom]
    [goog.object :as gob]
    [webnf.base.logging :as log]
-   [webnf.js.xhr :refer [xhr hmap]]
+   [webnf.js.xhr.async :as xhr]
    [cljs.core.match :refer-macros [match]]
    [cljs.pprint :refer [pprint]]
-   [#xml/ns "DAV:" :as dav]
-   [#xml/ns "urn:webnf:davstore:ext" :as ext])
+   [#xml/ns "DAV:" :as-alias dav]
+   [#xml/ns "urn:webnf:davstore:ext" :as-alias ext])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
 (defn- dav-request-fn [req-fn on-auth]
@@ -39,18 +39,15 @@
   (let [full-uri (str uri (to-href root-path))]
     (dav-request-fn
      (fn [add-headers*]
-       (xhr full-uri
-            {:method "PROPFIND"
-             :headers (merge {"content-type" "application/xml"
-                              "depth" (if depth (str depth) "infinity")}
-                             add-headers
-                             add-headers*)
-             :body "<?xml version=\"1.0\"?><propfind xmlns=\"DAV:\"><allprop/></propfind>"
-             :parse-response #(hash-map
-                               :uri (.getLastUri %)
-                               :status (.getStatus %)
-                               :headers (hmap (.getAllResponseHeaders %))
-                               :body (.getResponseXml %))}))
+       (xhr/request
+        full-uri
+        {:method "PROPFIND"
+         :headers (merge {"content-type" "application/xml"
+                          "depth" (if depth (str depth) "infinity")}
+                         add-headers
+                         add-headers*)
+         :body "<?xml version=\"1.0\"?><propfind xmlns=\"DAV:\"><allprop/></propfind>"
+         :get-response-body #(.getResponseXml ^js %)}))
      on-auth)))
 
 (defn tag= [ns-uri local-name]
@@ -171,8 +168,8 @@
    :body
    (dav-request-fn
     (fn [add-headers]
-      (xhr
-       (str server-url "/" (str/join "/" path))
+      (xhr/request
+       (str #_FIXME #_server-url "/" (str/join "/" path))
        {:headers add-headers
         :auto-refresh true}))
     on-auth)))
@@ -182,9 +179,10 @@
     (assert (= root-path (take (count root-path) path)))
     (dav-request-fn
      (fn [add-headers*]
-       (xhr (str uri (to-href path))
-            {:method "MKCOL"
-             :headers add-headers*}))
+       (xhr/request
+        (str uri (to-href path))
+        {:method "MKCOL"
+         :headers add-headers*}))
      on-auth)))
 
 (defn dummy-file [path content-type]
@@ -201,12 +199,13 @@
     (assert (= root-path (take (count root-path) (:path entry))))
     (dav-request-fn
      (fn [add-headers*]
-       (xhr (str uri (to-href (:path entry)))
-            {:method "PUT"
-             :headers (-> add-headers*
-                          (assoc "Content-Type" getcontenttype)
-                          (cond-> getetag (assoc "If-Match" getetag)))
-             :body new-content}))
+       (xhr/request
+        (str uri (to-href (:path entry)))
+        {:method "PUT"
+         :headers (-> add-headers*
+                      (assoc "Content-Type" getcontenttype)
+                      (cond-> getetag (assoc "If-Match" getetag)))
+         :body new-content}))
      on-auth)))
 
 (def error ::error)
@@ -217,30 +216,32 @@
     (map< parse-dav-response
           (dav-request-fn
            (fn [add-headers*]
-             (xhr (str uri (to-href path))
-                  {:method "PROPPATCH"
-                   :headers (-> add-headers*
-                                (cond-> getetag (assoc "If-Match" getetag)))
-                   :body (str "<?xml version=\"1.0\"?><propertyupdate xmlns=\"DAV:\"><set><prop"
-                              (str/join " "
-                                        (cons ""
-                                         (for [[a n] nss]
-                                           (str "xmlns:" a "=\"" n "\""))))
-                              ">"
-                              (apply str (for [[p v] props]
-                                           (str "<" p ">" v "</" p ">")))
-                              "</prop></set></propertyupdate>")}))
+             (xhr/request
+              (str uri (to-href path))
+              {:method "PROPPATCH"
+               :headers (-> add-headers*
+                            #_FIXME #_(cond-> getetag (assoc "If-Match" getetag)))
+               :body (str "<?xml version=\"1.0\"?><propertyupdate xmlns=\"DAV:\"><set><prop"
+                          (str/join " "
+                                    (cons ""
+                                          (for [[a n] nss]
+                                            (str "xmlns:" a "=\"" n "\""))))
+                          ">"
+                          (apply str (for [[p v] props]
+                                       (str "<" p ">" v "</" p ">")))
+                          "</prop></set></propertyupdate>")}))
            on-auth))))
 
 (defn delete! [tree path & [getetag]]
   (let [{:keys [uri root-path on-auth]} (meta tree)]
     (map< parse-dav-response (dav-request-fn
                               (fn [add-headers*]
-                                (xhr (str uri (to-href path))
-                                     {:method "DELETE"
-                                      :headers (-> add-headers*
-                                                   (cond-> getetag (assoc "If-Match" getetag))
-                                                   (assoc "Depth" "0"))}))
+                                (xhr/request
+                                 (str uri (to-href path))
+                                 {:method "DELETE"
+                                  :headers (-> add-headers*
+                                               (cond-> getetag (assoc "If-Match" getetag))
+                                               (assoc "Depth" "0"))}))
                               on-auth))))
 
 (defn move! [tree from-path to-path]
@@ -254,10 +255,11 @@
        (<!
         (map< parse-dav-response (dav-request-fn
                                   (fn [add-headers*]
-                                    (xhr (str uri (to-href (concat root-path from-path)))
-                                         {:method "MOVE"
-                                          :headers
-                                          (-> add-headers*
-                                              (assoc "Destination"
-                                                     (str uri (to-href (concat root-path to-path)))))}))
+                                    (xhr/request
+                                     (str uri (to-href (concat root-path from-path)))
+                                     {:method "MOVE"
+                                      :headers
+                                      (-> add-headers*
+                                          (assoc "Destination"
+                                                 (str uri (to-href (concat root-path to-path)))))}))
                                   on-auth)))))))

@@ -13,26 +13,23 @@
             (webnf.davstore
              [dav :as dav]
              [store :as store]
-             [ext :as ext]
-             [util :refer [alias-ns]])))
-
-(alias-ns
- :de  :webnf.davstore.entry
- :det :webnf.davstore.entry.type
- :des :webnf.davstore.entry.snapshot
- :dr  :webnf.davstore.root
- :dd  :webnf.davstore.dir
- :dfc :webnf.davstore.file.content
- :dfn :webnf.davstore.fn)
+             [ext :as ext])
+            [webnf.davstore.entry :as-alias de]
+            [webnf.davstore.entry.type :as-alias det]
+            [webnf.davstore.entry.snapshot :as-alias des]
+            [webnf.davstore.root :as-alias dr]
+            [webnf.davstore.dir :as-alias dd]
+            [webnf.davstore.file.content :as-alias dfc]
+            [webnf.davstore.fn :as-alias dfn]))
 
 ;; Middlewares
 
-(defn wrap-store [h & {:keys [blob-path db-uri root-uuid root-uri ext-props add-schema]}]
-  (assert (and blob-path db-uri root-uuid root-uri))
+(defn wrap-store [h & {:keys [blob-path db-uri root-uuid root-dir ext-props add-schema]}]
+  (assert (and blob-path db-uri root-uuid root-dir))
   (let [store (blob/make-store! blob-path)
         {:keys [conn] :as dstore}
         (assoc (store/init-store! db-uri store root-uuid true)
-               :root-dir root-uri
+               :root-dir root-dir
                :ext-props (map-keys xml/as-qname ext-props))]
     (when (seq add-schema)
       (log/info "Adding extra schema" add-schema)
@@ -58,19 +55,19 @@
   cacheable names, say for a CDN."
   (app
    [] {:post (fn [{body :body store ::bstore :as req}]
-               (let [{:keys [tempfile sha-1] :as res} (blob/store-temp! store #(io/copy body %))
+               (let [{:keys [tempfile sha] :as res} (blob/store-temp! store #(io/copy body %))
                      created (blob/merge-temp! store res)
-                     uri (dav/pjoin (:uri req) sha-1)]
-                 (-> (response sha-1)
+                     uri (dav/pjoin (:uri req) sha)]
+                 (-> (response sha)
                      (header "location" uri)
-                     (header "etag" (str \" sha-1 \"))
+                     (header "etag" (str \" sha \"))
                      (status (if created 201 302)))))}
-   [sha-1] {:get (fn [req]
-                   (if-let [f (blob/find-blob (::bstore req) sha-1)]
-                     (-> (response f)
-                         (content-type "application/octet-stream")
-                         (header "etag" (str \" sha-1 \")))
-                     (not-found "Blob not found")))}))
+   [sha] {:get (fn [req]
+                 (if-let [f (blob/find-blob (::bstore req) sha)]
+                   (-> (response f)
+                       (content-type "application/octet-stream")
+                       (header "etag" (str \" sha \")))
+                   (not-found "Blob not found")))}))
 
 (def file-handler
   (app

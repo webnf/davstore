@@ -4,8 +4,8 @@
                       [clojure.tools.logging :as log]]
                 :cljs [[cljs.core.match :refer-macros [match]]
                        [webnf.base.logging :as log]])
-            [#xml/ns "DAV:" :as dav]
-            [#xml/ns "urn:webnf:davstore:ext" :as ext]))
+            [#xml/ns "DAV:" :as-alias dav]
+            [#xml/ns "urn:webnf:davstore:ext" :as-alias ext]))
 
 ;; # Namespaced xml parsing
 

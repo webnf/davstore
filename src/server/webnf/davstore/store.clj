@@ -14,19 +14,16 @@
             [webnf.filestore :as blob]
             (webnf.davstore
              [ext :as ext]
-             [schema :refer [ensure-schema!]]
-             [util :refer [alias-ns]])
+             [schema :refer [ensure-schema!]])
             [webnf.datomic :as wd]
-            [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]))
-
-(alias-ns
- :de  :webnf.davstore.entry
- :det :webnf.davstore.entry.type
- :des :webnf.davstore.entry.snapshot
- :dr  :webnf.davstore.root
- :dd  :webnf.davstore.dir
- :dfc :webnf.davstore.file.content
- :dfn :webnf.davstore.fn)
+            [webnf.datomic.query :refer [reify-entity entity-1 id-1 id-list by-attr by-value]]
+            [webnf.davstore.entry :as-alias de]
+            [webnf.davstore.entry.type :as-alias det]
+            [webnf.davstore.entry.snapshot :as-alias des]
+            [webnf.davstore.root :as-alias dr]
+            [webnf.davstore.dir :as-alias dd]
+            [webnf.davstore.file.content :as-alias dfc]
+            [webnf.davstore.fn :as-alias dfn]))
 
 ;; ## SHA-1 Stuff
 
@@ -322,10 +319,15 @@
                            (mv-tx (:db/id from-parent) (:db/id to-parent) (:db/id from-entry) (last to-path))))))
 
 (defn blob-file [{bs :blob-store} {sha1 ::dfc/sha-1}]
-  (blob/get-blob bs sha1))
+  (try
+   (blob/get-blob bs sha1)
+   (catch Exception e
+     (log/error e "No blobfile for SHA-1:" {:sha-1 sha1})
+     nil)))
 
 (defn- ls-seq
   [store {:keys [::dd/children ::de/type] :as e} dir depth]
+  #_(log/warn children)
   (cons {:path dir
          :entity e
          :blob-file (when (= ::det/file type) (blob-file store e))}

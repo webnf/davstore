@@ -1,0 +1,14 @@
+{:paths
+ ["src/devel"
+  "src/server"
+  "src/client"
+  "src/common"
+  "test"],
+ :deps
+ {org.clojure/clojure #:mvn{:version "1.9.0"},
+  webnf/datomic #:local{:root "../datomic"}
+  webnf/enlive #:local{:root "../enlive"}
+  webnf/filestore #:local{:root "../filestore"}
+  webnf/handler #:local{:root "../handler"}
+  org.clojure/data.xml #:mvn{:version "0.2.0-alpha6"}
+  webnf/base #:local{:root "../base"}}}
