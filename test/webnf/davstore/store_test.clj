@@ -206,7 +206,7 @@
   (store/pr-tree test-store)
   (binding [*store* test-store]
     (match-root testdata-ref-tree))
-  (store/reify-entity (get-entry test-store ["a"]))
+  #_(store/reify-entity (get-entry test-store ["a"]))
 
   (cp! test-store ["a"] ["A"] false false)
 

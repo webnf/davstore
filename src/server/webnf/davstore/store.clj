@@ -318,19 +318,23 @@
                              [[:db.fn/retractEntity (:db/id to-entry)]])
                            (mv-tx (:db/id from-parent) (:db/id to-parent) (:db/id from-entry) (last to-path))))))
 
+(def ^:dynamic *identifier* "")
+
 (defn blob-file [{bs :blob-store} {sha1 ::dfc/sha-1}]
   (try
-   (blob/get-blob bs sha1)
-   (catch Exception e
-     (log/error e "No blobfile for SHA-1:" {:sha-1 sha1})
-     nil)))
+    (blob/get-blob bs sha1)
+    (catch Exception e
+      (log/error e "No blobfile for SHA-1:" {:sha-1 sha1 :identifier *identifier*})
+      nil)))
 
 (defn- ls-seq
   [store {:keys [::dd/children ::de/type] :as e} dir depth]
   #_(log/warn children)
   (cons {:path dir
          :entity e
-         :blob-file (when (= ::det/file type) (blob-file store e))}
+         :blob-file (when (= ::det/file type)
+                      (binding [*identifier* [dir e]]
+                       (blob-file store e)))}
         (when (pos? depth)
           (mapcat #(ls-seq store % (conj dir (::de/name %)) (dec depth)) children))))
 

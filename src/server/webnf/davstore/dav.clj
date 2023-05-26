@@ -185,7 +185,7 @@
         {:status 404}))))
 
 (defhandler read [path {:as req store ::app/store uri :uri}]
-;  (log/info "GET" uri (pr-str path))
+                                        ;  (log/info "GET" uri (pr-str path))
   (let [db (store/store-db store)]
     (loop [{:as entry
             :keys [::dfc/mime-type ::de/type ::dfc/sha-1 ::dd/index-file db/id]}
@@ -195,7 +195,8 @@
           {:status 200
            :headers {"Content-Type" mime-type
                      "ETag" (str \" sha-1 \")}
-           :body (store/blob-file store entry)}
+           :body (binding [store/*identifier* (pr-str path)]
+                   (store/blob-file store entry))}
           (if index-file
             (recur (d/entity db (store/dir-child db id index-file)))
             {:status 405 :body (str uri " is a directory")}))

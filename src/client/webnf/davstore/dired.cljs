@@ -2,12 +2,13 @@
   (:require
    [om.core :as om]
    [om-tools.dom :as dom]
-   [webnf.mui.components :as mc]
-   [webnf.mui.styles :refer [with-style style-class]]
-   [webnf.mui.base :refer [state-setter] :refer-macros [component]]
-   [webnf.mui.colors :refer [get-color]]
-   [webnf.util :refer [log log-pr xhr] :refer-macros [forcat]]
-   [davstore.client.dav :as dav]))
+   #_[webnf.mui.components :as mc]
+   #_[webnf.mui.styles :refer [with-style style-class]]
+   #_[webnf.mui.base :refer [state-setter] :refer-macros [component]]
+   #_[webnf.mui.colors :refer [get-color]]
+   [webnf.base.logging :refer [log log-pr]]
+   [webnf.base.util :refer-macros [forcat]]
+   [webnf.davstore.dav :as dav]))
 
 (defn table-renderer [& {:keys [styles columns]}]
   (let [thead (dom/thead {:class (style-class (:thead styles))}
